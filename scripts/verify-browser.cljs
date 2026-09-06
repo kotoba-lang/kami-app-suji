@@ -14,7 +14,13 @@
   3. **The physics runs in the browser.** Moving a slider must change the
      readout. Until 2026-09-06 `suji` could not load under ClojureScript at all,
      so this assertion could not have passed at any earlier commit.
-  4. **Crossing a view does not load a document.** This is the single-page claim
+  4. **The bones are the meshes this source generates.** A rendered something is
+     not evidence — the check that pixels exist passed on cylinders too. The
+     viewport publishes the vertex and index counts it read back off the GPU
+     buffer handles, and this recomputes them from `kami.webgpu.geometry` under
+     nbb. A bone drawn with the wrong mesh is then a disagreement between two
+     runtimes over one `.cljc`, not a claim the page makes about itself.
+  5. **Crossing a view does not load a document.** This is the single-page claim
      and it is unobservable from the code — a nav reads the same whether it
      routes or navigates. A value is left on `window`, the view is crossed, and
      the value has to still be there.
@@ -25,6 +31,11 @@
             ["node:process" :as process]
             ["playwright$default" :as pw]
             [clojure.string :as str]
+            ;; the SAME sources the browser is running, so the bone-mesh check
+            ;; below can be a disagreement between two runtimes over one .cljc
+            ;; rather than the page grading its own homework
+            [kami.app-suji.scene :as scene]
+            [kami.webgpu.geometry :as geom]
             [promesa.core :as p]))
 
 (def url (or (.. process -env -SUJI_URL) "http://localhost:8741/"))
@@ -89,7 +100,74 @@
                (and (number? uniq) (> uniq 3))
                (str "distinct sampled colours: " uniq))))
 
-   ;; 4. the physics runs in the browser: a slider changes the answer
+   ;; 4. the bones are anatomical meshes, and they are the ones this source makes
+   (fn []
+     (p/let [g (.evaluate page "window.__sujiGeometry || null")]
+       (let [g (js->clj g :keywordize-keys true)
+             bones (:bones g)
+             cyl-v (:cylinderVertices g)]
+         (check! "the viewport reported the meshes it uploaded for the bones"
+                 (seq bones) (str "window.__sujiGeometry was " (pr-str g)))
+         (check! "no bone is drawn as the cylinder it replaced"
+                 (and (seq bones)
+                      (not-any? #(= "cylinder" (:shape %)) bones)
+                      (not-any? #(= cyl-v (:vertices %)) bones))
+                 (str "shapes " (vec (distinct (map :shape bones)))
+                      ", vertex counts " (vec (map :vertices bones))
+                      ", the cylinder's is " cyl-v))
+         (check! "the axial and limb segments are not the same shape"
+                 (> (count (distinct (map :shape bones))) 1)
+                 (str "shapes drawn: " (vec (distinct (map :shape bones)))))
+         (check! "every bone has its own GPU buffer (a shared one draws one bone)"
+                 (and (seq bones) (= (:distinctBuffers g) (count bones)))
+                 (str (:distinctBuffers g) " distinct upload serials for "
+                      (count bones) " bones: " (vec (map :buffer bones))))
+         (let [bad (for [b bones
+                         :let [kind (keyword (:shape b))
+                               {:keys [generator params]}
+                               (get scene/bone-shapes kind
+                                    (get scene/bone-shapes scene/default-bone-shape))
+                               m (case generator
+                                   :vertebral-body (geom/vertebral-body
+                                                    (assoc params :length (:meshLengthM b)
+                                                           :radius (:meshRadiusM b)))
+                                   (geom/long-bone (assoc params :length (:meshLengthM b)
+                                                          :shaft-radius (:meshRadiusM b))))
+                               want [(count (:positions m)) (count (:indices m))]
+                               got [(:vertices b) (:indices b)]]
+                         :when (not= want got)]
+                     [(:label b) (:shape b) :want want :got got])]
+           (check! "every uploaded bone mesh is exactly what kami.webgpu.geometry generates here"
+                   (and (seq bones) (empty? bad))
+                   (str (count bad) " mismatched, e.g. " (pr-str (first bad))))))))
+
+   ;; 5. the mesh follows the anthropometry: change the body, change the bone
+   (fn []
+     (p/let [before (.evaluate page
+                     "window.__sujiGeometry.bones.map(b => [b.label, b.meshLengthM, b.vertices])")
+             _ (.evaluate page
+                "(() => { const el = document.getElementById('body-stature-m');
+                          el.value = 2.02; el.dispatchEvent(new Event('input', {bubbles: true})); })()")
+             _ (.waitForTimeout page 500)
+             after (.evaluate page
+                    "window.__sujiGeometry.bones.map(b => [b.label, b.meshLengthM, b.vertices])")]
+       (let [b (js->clj before) a (js->clj after)
+             len (fn [rows] (mapv second rows))]
+         (check! "a taller body gets longer bone MESHES, not a stretched picture"
+                 (and (seq b) (= (count a) (count b))
+                      (every? true? (map (fn [x y] (> y x)) (len b) (len a))))
+                 (str "mesh lengths " (len b) " -> " (len a)))
+         (check! "and they are still whole meshes after the rebuild"
+                 (every? #(> (nth % 2) 0) a)
+                 (str "vertex counts after: " (mapv #(nth % 2) a))))
+       ;; put the body back so the later checks see the same figure as before
+       (p/let [_ (.evaluate page
+                  "(() => { const el = document.getElementById('body-stature-m');
+                            el.value = 1.70; el.dispatchEvent(new Event('input', {bubbles: true})); })()")
+               _ (.waitForTimeout page 300)]
+         nil)))
+
+   ;; 6. the physics runs in the browser: a slider changes the answer
    (fn []
      (p/let [before (text-of page ".suji-figure")
              _ (.evaluate page
@@ -153,6 +231,17 @@
    (fn []
      (p/let [_ (.click page "a[href='#/spine']")
              _ (.waitForSelector page "table")
+             ;; innerText needs LAYOUT, and `table` exists before the rows do.
+             ;; Reading it in the same tick as the commit returns the shell
+             ;; without the view — the same hazard the comparison check below
+             ;; already documents, which this block was missing. It passed by
+             ;; luck until the bone checks above added ~800ms and two extra
+             ;; renders ahead of it, and then failed three assertions at once
+             ;; while the structural check on the same table kept passing.
+             _ (.waitForFunction page
+                "() => document.querySelectorAll('tbody tr').length > 0"
+                #js {} #js {:timeout 8000})
+             _ (.waitForTimeout page 200)
              body (.evaluate page "document.body.innerText")]
        (check! "the spine view lists intervertebral levels"
                (and (str/includes? (or body "") "L5/S1")
@@ -228,7 +317,9 @@
       ;; pass. Cf. the workspace rule that a check which could not run has to be
       ;; distinguishable from a check that passed.
       (cond
-        (< (count @results) 16)
+        ;; raised from 16 when the bone-mesh checks landed: an evidence floor that
+        ;; does not move when the suite grows stops being a floor
+        (< (count @results) 22)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

@@ -58,7 +58,8 @@
         unit (geom/long-bone (assoc params :length 1.0 :shaft-radius 1.0))
         sized (geom/long-bone (assoc params :length L :shaft-radius r))]
     (is (not= (count (:positions unit)) (count (:positions sized)))
-        "measured 2026-09-07: 378 verts at unit aspect, 357 at a real humerus's —
+        "measured 2026-09-07: the unit-aspect mesh and the real-humerus mesh
+         disagree on vertex count because they crease differently —
          if this ever becomes equal the bucketing below is no longer needed, but
          until then a unit template is a DIFFERENT MESH, not the same one smaller")
     (let [ys (map second (:positions sized))

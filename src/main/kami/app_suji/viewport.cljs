@@ -79,7 +79,13 @@
 (defn- bone-buffers! [ctx slot spec]
   (let [k [slot spec]]
     (or (get-in @state [:bones k])
-        (let [b (mesh/upload-mesh! ctx (bone-template spec))]
+        ;; ::upload is a serial stamped on the handle at upload time. It is the
+        ;; only way the browser check can tell "nine bones, nine buffers" from
+        ;; "nine bones, one buffer" — the first draft reported the SLOT INDEX,
+        ;; which is distinct by construction, so that check could not have failed
+        ;; however badly the cache was keyed.
+        (let [n (:upload-serial (swap! state update :upload-serial (fnil inc 0)))
+              b (assoc (mesh/upload-mesh! ctx (bone-template spec)) ::upload n)]
           (swap! state assoc-in [:bones k] b)
           b))))
 
@@ -145,20 +151,23 @@
   wrong mesh is a mismatch between two runtimes rather than a claim this app
   makes about itself.
 
-  `slots` is the set of distinct [slot shape] buffer keys in the frame: if it is
-  ever smaller than the bone count, two bones are sharing one uniform buffer and
-  the frame is showing fewer bones than it thinks (see the note above)."
+  `distinctBuffers` counts the upload serials actually stamped on the handles in
+  this frame. If it is ever smaller than the bone count, two bones are sharing one
+  uniform buffer and the frame is showing fewer bones than it thinks (see the note
+  above). It is deliberately not derived from the slot index, which would be
+  distinct no matter how the cache was keyed."
   [ctx {:keys [bones]}]
   (let [drawn (map-indexed (fn [i {:keys [label geo mesh]}]
-                             (let [{:keys [vertices indices]} (handle-counts (bone-buffers! ctx i mesh))]
+                             (let [h (bone-buffers! ctx i mesh)
+                                   {:keys [vertices indices]} (handle-counts h)]
                                {:label label :shape (name geo)
                                 :vertices vertices :indices indices
                                 :meshLengthM (:length-m mesh) :meshRadiusM (:radius-m mesh)
-                                :slot (str i "/" (name geo))}))
+                                :buffer (::upload h)}))
                            (take bone-slots bones))]
     (set! (.-__sujiGeometry js/window)
           (clj->js {:bones (vec drawn)
-                    :distinctSlots (count (distinct (map :slot drawn)))
+                    :distinctBuffers (count (distinct (map :buffer drawn)))
                     ;; the shape that was there before, for the check that says
                     ;; "not that one" without having to hard-code 84
                     :cylinderVertices (count (:positions unit-cylinder))

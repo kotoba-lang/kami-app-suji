@@ -38,12 +38,15 @@
         ;; SAME EDN render-IR, per the repo-wide 3D mandate. `kami.webgpu.geometry`
         ;; is the shared cross-platform mesh source; this app tessellates nothing
         ;; of its own.
-        ;; d249e78 adds kami.webgpu.geometry/{loft,long-bone,vertebral-body} — the
-        ;; anatomical shapes this app draws bones with. Reachable from webgpu's
-        ;; main (it is the merge commit); never pin an unmerged branch.
+        ;; kami.webgpu.geometry/{loft,long-bone,vertebral-body} — the anatomical
+        ;; shapes this app draws bones with. a66dcaf domes the ends of long-bone,
+        ;; which had been flat discs that rendered as black ellipses; that changed
+        ;; the triangle count from 26 to 30 per sector, so this pin and the mesh
+        ;; counts the browser check recomputes move together. Reachable from
+        ;; webgpu's main (it is the merge commit); never pin an unmerged branch.
         io.github.kotoba-lang/webgpu
         {:git/url "https://github.com/kotoba-lang/webgpu.git"
-         :git/sha "d249e78ee8363dac6381d449957f76e7b0952be2"}
+         :git/sha "a66dcaf3900bfde208125c64ae51b40e7e54391d"}
         io.github.kotoba-lang/webgl
         {:git/url "https://github.com/kotoba-lang/webgl.git"
          :git/sha "5ef9ffe794d1847a9f84eccee8fd5fa8ad174a20"}}
