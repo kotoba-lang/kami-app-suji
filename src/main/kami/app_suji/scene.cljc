@@ -34,15 +34,16 @@
   muscles and a segment on the left is coloured by the left one. Matching on the
   instance name would have needed this table written twice; matching on the group
   and the segment's own side needs it written once."
-  {"head_neck"      #{"cervical_extensors" "scalenes"}
-   "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"}
+  {"head_neck"      #{"cervical_extensors" "scalenes" "nuchal_ligament"}
+   "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"
+                      "posterior_lumbar_ligaments"}
    "upper_arm"      #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
                       "upper_trapezius" "middle_trapezius" "levator_scapulae"}
-   ;; the forearm and hand hang off the ELBOW, not off the shoulder — the shoulder
-   ;; carries them too, but the joint they are attached to is the one whose load
-   ;; their colour should report
+   ;; the forearm hangs off the ELBOW and the hand off the WRIST — the shoulder
+   ;; carries them too, but the joint a segment is attached to is the one whose
+   ;; load its colour should report
    "forearm"        #{"biceps_brachii" "brachialis" "triceps_brachii"}
-   "hand"           #{"biceps_brachii" "brachialis" "triceps_brachii"}
+   "hand"           #{"wrist_extensors" "wrist_flexors"}
    "pelvis"         #{}})
 
 ;; --- the load ramp -----------------------------------------------------------
@@ -66,6 +67,21 @@
   loaded nor unanswerable, and drawing it like either would be a claim."
   [0.30 0.33 0.40])
 
+(def ligament-load-floor-n
+  "Above this much ligament force, a segment is being held by tissue rather than
+  by muscle and must not be drawn as though the muscles' quiet meant ease."
+  200.0)
+
+(def quiet-muscle-pct
+  "Below this %MVC the muscles about a joint count as quiet."
+  8.0)
+
+(def ligament-rgb
+  "Held by ligament, not by muscle. Distinct from every load colour and from the
+  refusal colour: the load is real and computed — it is simply not muscular, and
+  the muscles' silence is the finding rather than relief."
+  [0.72 0.45 0.72])
+
 (def refused-rgb
   "A segment whose load the model declined to compute. Deliberately unlike both
   ends of the load ramp: it must not read as 'fine' or as 'bad', because it is
@@ -73,9 +89,16 @@
   [0.42 0.35 0.62])
 
 (defn band-for
-  "The load band a %MVC falls in."
+  "The load band a %MVC falls in, or nil when there is no %MVC.
+
+  A LIGAMENT has none — it cannot contract, so there is no maximum voluntary
+  contraction to be a fraction of — and this threw on the nil until 2026-09-06.
+  Returning nil rather than the lowest band matters: the lowest band is `low`, and
+  a structure carrying 1,500 N would have been labelled the least loaded thing on
+  the page."
   [mvc-pct]
-  (first (filter #(< mvc-pct (:max-mvc-pct %)) load-bands)))
+  (when (number? mvc-pct)
+    (first (filter #(< mvc-pct (:max-mvc-pct %)) load-bands))))
 
 (defn- lerp [a b t] (+ a (* (- b a) t)))
 
@@ -103,6 +126,8 @@
     {:kind :none}                — no solved muscle acts about this joint (the pelvis)
     {:kind :refused :names [..]} — a muscle acts here and the model DECLINED to
                                    compute its force at this posture
+    {:kind :ligament ...}        — the LIGAMENTS are carrying it and the muscles
+                                   have gone quiet
 
   The third is the one that matters. `suji` refuses when a muscle's line of action
   passes too close to the joint it acts about — a straight-line model has no
@@ -116,10 +141,26 @@
                      tensions)
         ;; an antagonist is not an unanswered load; it must not turn a segment purple
         refused (remove :antagonist? (filter :refused mine))
+        ligaments (filter :ligament? mine)
         vals (keep :mvc-pct mine)]
     (cond
       (empty? mine) {:kind :none}
       (seq refused) {:kind :refused :names (mapv :name refused)}
+
+      ;; FLEXION-RELAXATION MUST NOT READ AS RELIEF. In deep trunk flexion the
+      ;; erector spinae falls silent and the posterior ligaments take the load —
+      ;; so colouring by muscle %MVC alone makes the segment go COOLER exactly
+      ;; where the spine is most loaded. Measured 2026-09-06: the trunk's heat
+      ;; went 0.39 -> 0.53 -> 0.10 across 15/30/45 deg of flexion, and the picture
+      ;; said the worst posture was the easiest.
+      (and (seq ligaments)
+           (> (reduce + 0.0 (keep :force-n ligaments)) ligament-load-floor-n)
+           (< (apply max 0.0 vals) quiet-muscle-pct))
+      {:kind :ligament
+       :mvc-pct (when (seq vals) (apply max vals))
+       :ligament-n (reduce + 0.0 (keep :force-n ligaments))
+       :names (mapv :name ligaments)}
+
       (seq vals) {:kind :loaded :mvc-pct (apply max vals)}
       :else {:kind :none})))
 
@@ -149,8 +190,10 @@
              :refused-names (:names st)
              :mvc-pct mvc-pct
              :band (when mvc-pct (:band (band-for mvc-pct)))
+             :ligament-n (:ligament-n st)
              :color (case kind
                       :loaded (ramp-rgb mvc-pct)
+                      :ligament ligament-rgb
                       :refused refused-rgb
                       unloaded-rgb)
              :transform {:translation mid

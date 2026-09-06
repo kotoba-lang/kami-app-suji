@@ -135,6 +135,9 @@
              ;; purple with no entry for it has to guess, and both guesses (fine /
              ;; terrible) are claims the model did not make.
              [[:span {:class "suji-note"}
+               [:span {:class "suji-swatch" :style {:background (rgb-css scene/ligament-rgb)}}]
+               "靭帯が担っている（筋は沈黙）"]
+              [:span {:class "suji-note"}
                [:span {:class "suji-swatch" :style {:background (rgb-css scene/refused-rgb)}}]
                "適用範囲外（計算していない）"]
               [:span {:class "suji-note"}
@@ -165,6 +168,14 @@
                      (:joints loads))}))
       (dds/card
        (dds/heading 3 "筋の緊張と強張り")
+       (when-let [ls (seq (filter :ligament? tensions))]
+         [:p {:class "suji-note"}
+          "靭帯は筋ではない —— 収縮しないので %MVC を持たず、関節が既にそこまで運ばれて"
+          "初めて張る。深い体幹前屈では脊柱起立筋が電気的に沈黙し、"
+          [:strong "後方靭帯系が荷重を引き受ける"] "（屈曲弛緩）。"
+          (when (some :at-limit? ls)
+            [:strong "⚠ 一部の靭帯は較正範囲を超えて伸ばされており、表示中の力は"
+             "外挿ではなく打ち切った値である。"])])
        [:p {:class "suji-note"}
         "「出せる力」はその筋が" [:strong "この姿勢の長さで"]
         "出せる力（PCSA × 比張力 × Hill の力‑長さ係数）。%MVC の分母はこれであって"
@@ -193,9 +204,16 @@
                           ;; the denominator of the %MVC beside it: what this
                           ;; muscle can produce AT THIS LENGTH, not its peak
                           (str (math/fmt-fixed (:f-max-n t) 0) " N")
-                          (str (math/fmt-fixed (:mvc-pct t) 1) " %"
-                               (when (:over-mvc? t) " ⚠"))
-                          (:band (scene/band-for (:mvc-pct t)))
+                          ;; a LIGAMENT has no %MVC — it cannot contract, so
+                          ;; there is no maximum voluntary contraction to be a
+                          ;; fraction of. Asking `:refused` here would have missed
+                          ;; it; asking whether the number is present does not.
+                          (if (muscle/numeric-mvc? t)
+                            (str (math/fmt-fixed (:mvc-pct t) 1) " %"
+                                 (when (:over-mvc? t) " ⚠"))
+                            (if (:ligament? t) "靭帯（収縮しない）" "—"))
+                          (or (:band (scene/band-for (:mvc-pct t)))
+                              (if (:ligament? t) "靭帯" "—"))
                           (str (strain/stiffness-band (:stiffness-index st))
                                (when (:saturated? st) "（飽和）"))]))
                      tensions strains)})

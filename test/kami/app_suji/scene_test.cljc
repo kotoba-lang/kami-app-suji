@@ -174,14 +174,38 @@
     (is (<= (:azimuth-deg bent) (+ scene/base-azimuth-deg scene/extra-azimuth-deg))
         "the swing is bounded")))
 
-(deftest leaning-further-forward-reddens-the-trunk
-  (let [heat (fn [flex]
-               (let [state (-> core/initial-state
-                               (assoc-in [:posture :trunk-flexion-deg] flex))
-                     {:keys [scene]} (core/solved state)
-                     t (first (filter #(= "thorax_abdomen" (:label %)) (:bones scene)))
-                     [r g _] (:color t)]
-                 (- r g)))
-        xs (mapv heat [0.0 15.0 30.0 45.0])]
-    (is (every? (fn [[a b]] (<= a b)) (partition 2 1 xs))
-        (str "the trunk must not get cooler as it leans further: " xs))))
+(deftest leaning-forward-loads-the-trunk-and-then-hands-it-to-the-ligaments
+  ;; This used to assert that the trunk gets monotonically redder with flexion, and
+  ;; it did until the posterior ligaments landed. Past flexion-relaxation the
+  ;; erector spinae falls silent and the load moves to tissue — so the segment's
+  ;; muscle load genuinely DROPS while the spine is more loaded than ever.
+  ;;
+  ;; Colouring by %MVC alone therefore made the worst posture look like the
+  ;; easiest: measured 2026-09-06, the trunk's heat went 0.39 -> 0.53 -> 0.10
+  ;; across 15/30/45 degrees. The segment switches to its own state instead, and
+  ;; what is asserted is that it never reads as relief.
+  (let [state-at (fn [flex]
+                   (let [st (assoc-in core/initial-state [:posture :trunk-flexion-deg] flex)
+                         {:keys [scene]} (core/solved st)]
+                     (first (filter #(= "thorax_abdomen" (:label %)) (:bones scene)))))
+        heat (fn [b] (let [[r g _] (:color b)] (- r g)))]
+    ;; rising while the muscle is doing the work
+    (is (< (heat (state-at 0.0)) (heat (state-at 15.0))))
+    (is (< (heat (state-at 15.0)) (heat (state-at 30.0))))
+    ;; and then the ligaments take it
+    (let [deep (state-at 45.0)]
+      (is (= :ligament (:state deep))
+          (str "deep flexion is carried by tissue, got " (:state deep)))
+      (is (= scene/ligament-rgb (:color deep)))
+      (is (> (:ligament-n deep) scene/ligament-load-floor-n))
+      (is (not= scene/ligament-rgb (scene/ramp-rgb 0.0))
+          "and must not collide with the low end of the load ramp")
+      (is (not= scene/ligament-rgb scene/refused-rgb)
+          "nor with 'not answered' — this one IS answered"))))
+
+(deftest a-ligament-has-no-band
+  ;; the lowest band is "low", and a structure carrying 1,500 N must not be
+  ;; labelled the least loaded thing on the page
+  (is (nil? (scene/band-for nil)))
+  (is (some? (scene/band-for 0.0)))
+  (is (= "low" (:band (scene/band-for 1.0)))))
