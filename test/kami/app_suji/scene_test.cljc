@@ -174,34 +174,62 @@
     (is (<= (:azimuth-deg bent) (+ scene/base-azimuth-deg scene/extra-azimuth-deg))
         "the swing is bounded")))
 
-(deftest leaning-forward-loads-the-trunk-and-then-hands-it-to-the-ligaments
-  ;; This used to assert that the trunk gets monotonically redder with flexion, and
-  ;; it did until the posterior ligaments landed. Past flexion-relaxation the
-  ;; erector spinae falls silent and the load moves to tissue — so the segment's
-  ;; muscle load genuinely DROPS while the spine is more loaded than ever.
+(deftest leaning-forward-hands-the-trunk-from-the-muscles-to-the-ligaments
+  ;; REWRITTEN 2026-09-07. This test used to assert that the erector spinae falls
+  ;; SILENT in deep flexion and the segment goes quiet. That silence was not the
+  ;; phenomenon — it was `lumbosacral-moment` understating the demand by about
+  ;; half (it omitted the arms and placed the head's weight at C7), so `recruit`
+  ;; clamped a negative remainder to zero. With the moment corrected the erector
+  ;; spinae is still at 43.7 %MVC at 60 degrees.
   ;;
-  ;; Colouring by %MVC alone therefore made the worst posture look like the
-  ;; easiest: measured 2026-09-06, the trunk's heat went 0.39 -> 0.53 -> 0.10
-  ;; across 15/30/45 degrees. The segment switches to its own state instead, and
-  ;; what is asserted is that it never reads as relief.
+  ;; What survives the correction, and is the thing worth drawing, is the SHIFT:
+  ;; measured on this pin, ligament against erector spinae is 429 N vs 1398 N at
+  ;; 30 degrees, 1572 vs 1367 at 45, and 3989 vs 635 at 60. The tissue holding
+  ;; the spine changes, and that changes what would unload it — "relax your back"
+  ;; helps in the first regime and not in the second.
   (let [state-at (fn [flex]
                    (let [st (assoc-in core/initial-state [:posture :trunk-flexion-deg] flex)
                          {:keys [scene]} (core/solved st)]
-                     (first (filter #(= "thorax_abdomen" (:label %)) (:bones scene)))))
-        heat (fn [b] (let [[r g _] (:color b)] (- r g)))]
-    ;; rising while the muscle is doing the work
-    (is (< (heat (state-at 0.0)) (heat (state-at 15.0))))
-    (is (< (heat (state-at 15.0)) (heat (state-at 30.0))))
-    ;; and then the ligaments take it
-    (let [deep (state-at 45.0)]
+                     (first (filter #(= "thorax_abdomen" (:label %)) (:bones scene)))))]
+    ;; the muscles carry it first
+    (let [shallow (state-at 15.0)]
+      (is (= :loaded (:state shallow))
+          (str "at 15 degrees the muscles carry it, got " (:state shallow))))
+    ;; and the ligaments take over
+    (let [deep (state-at 60.0)]
       (is (= :ligament (:state deep))
-          (str "deep flexion is carried by tissue, got " (:state deep)))
+          (str "at 60 degrees the ligaments carry more, got " (:state deep)))
       (is (= scene/ligament-rgb (:color deep)))
+      (is (> (:ligament-n deep) (:muscle-n deep))
+          (str "the state fired without the ligaments carrying more: "
+               (select-keys deep [:ligament-n :muscle-n])))
       (is (> (:ligament-n deep) scene/ligament-load-floor-n))
       (is (not= scene/ligament-rgb (scene/ramp-rgb 0.0))
           "and must not collide with the low end of the load ramp")
       (is (not= scene/ligament-rgb scene/refused-rgb)
-          "nor with 'not answered' — this one IS answered"))))
+          "nor with 'not answered' — this one IS answered"))
+    ;; the control: the transition is a real crossing, not a threshold that fires
+    ;; everywhere. If every flexion read :ligament the assertions above would hold
+    ;; and mean nothing.
+    (is (= :loaded (:state (state-at 0.0)))
+        "an upright trunk must not read as ligament-carried")))
+
+(deftest the-load-ramp-does-not-saturate-across-the-voluntary-range
+  ;; The top band's `:max-mvc-pct` is infinite, which made the interpolation
+  ;; coefficient zero and painted EVERY value above 30 %MVC one colour. Measured
+  ;; 2026-09-07 before the fix: the trunk read the same heat at 46.8, 76.6 and
+  ;; 43.7 %MVC, so the picture carried about one bit where the model had a range.
+  (let [heat (fn [m] (let [[r g _] (scene/ramp-rgb (double m))] (- r g)))
+        xs (range 0 101 10)
+        hs (map heat xs)]
+    (is (every? (fn [[a b]] (<= a (+ b 1e-9))) (map vector hs (rest hs)))
+        (str "the ramp is not monotonic: " (pr-str (map vector xs hs))))
+    ;; and it actually moves in the top band, which is where it used to stand still
+    (is (> (heat 100.0) (+ (heat 30.0) 0.1))
+        (str "30 %MVC reads " (heat 30.0) " and 100 %MVC reads " (heat 100.0)))
+    ;; anchored at maximum voluntary contraction, not at an arbitrary ceiling
+    (is (math/nearly= (heat 100.0) (heat 130.0) 1e-9)
+        "above MVC the ramp holds; `over-mvc?` is what says the model was asked for more")))
 
 (deftest a-ligament-has-no-band
   ;; the lowest band is "low", and a structure carrying 1,500 N must not be
