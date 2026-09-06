@@ -220,6 +220,37 @@
                (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
 
+   ;; 4c. the picture shows the whole body, not as much of it as fits.
+   ;;
+   ;; The buffer pools used to be fixed constants — twelve bones, twelve joints,
+   ;; twenty muscles — and `draws-for` took that many and dropped the rest behind a
+   ;; `console.error` saying to raise the counts. They were never raised. Measured
+   ;; the day the lower limb landed: the scene produced 15 bones, 20 joints and 48
+   ;; muscles, so three bones, eight joints and TWENTY-EIGHT muscles were not
+   ;; drawn — over half the musculature — and the picture looked entirely
+   ;; plausible.
+   ;;
+   ;; So this compares what the scene asked for against what reached the GPU. It
+   ;; reads both off `window.__sujiGeometry`, which the render path publishes from
+   ;; the draw list it actually encoded, rather than off the scene map.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             _ (.waitForTimeout page 300)
+             g (.evaluate page "window.__sujiGeometry || null")]
+       (let [g (js->clj g :keywordize-keys true)
+             sc (:sceneCounts g)
+             asked (+ (:bones sc 0) (:joints sc 0) (:muscles sc 0) (:discs sc 0))]
+         (check! "the scene has more parts than the old fixed pools held"
+                 (and (< 12 (:bones sc 0)) (< 20 (:muscles sc 0)))
+                 (str "scene counts " (pr-str sc)
+                      " — if this shrinks below the old caps the next check stops"
+                      " discriminating"))
+         (check! "every part the scene produced was drawn"
+                 (= asked (:drawCount g))
+                 (str "scene asked for " asked " parts " (pr-str sc)
+                      " and the GPU was given " (:drawCount g))))))
+
    ;; 5a. the standing preset reaches the browser.
    ;;
    ;; `apply-preset` lives in `ui.cljs` and is only reachable by a click, so the
@@ -411,7 +442,7 @@
         ;; suite grows stops being a floor. One below the current count, so that a
         ;; single check silently failing to register is caught while an
         ;; intentional removal is a deliberate edit here.
-        (< (count @results) 27)
+        (< (count @results) 29)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)
