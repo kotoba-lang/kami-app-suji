@@ -239,17 +239,22 @@
    :tension/coeffs                       {:state :shown}
 
    ;; --- the dose --------------------------------------------------------------
+   ;; --- the dose ---------------------------------------------------------------
+   ;; The band was the whole of this layer on the page until 2026-09-08, and it is
+   ;; a saturating transform of a dose that keeps going after the band stops
+   ;; distinguishing. The holding time, its caveat and the raw dose are all things
+   ;; `strain` computes and says are worth carrying with the number they qualify.
    :strain/stiffness-index               {:state :shown :token "very-high"}
    :strain/saturated?                    {:state :shown :token "（飽和）"}
-   :strain/endurance-minutes             {:state :computed-not-shown}
-   :strain/endurance-position            {:state :computed-not-shown}
-   :strain/endurance-extrapolated?       {:state :computed-not-shown}
-   :strain/unbounded-endurance?          {:state :computed-not-shown}
+   :strain/endurance-minutes             {:state :shown}
+   :strain/endurance-position            {:state :shown :token "当てはめ範囲内"}
+   :strain/endurance-extrapolated?       {:state :shown :token "（外挿）"}
+   :strain/unbounded-endurance?          {:state :shown :token "∞"}
    :strain/acute-dose                    {:state :computed-not-shown}
    :strain/chronic-dose                  {:state :computed-not-shown}
-   :strain/dose                          {:state :computed-not-shown}
+   :strain/dose                          {:state :shown}
    :strain/index-resolution              {:state :computed-not-shown}
-   :strain/over-endurance                {:state :computed-not-shown}
+   :strain/over-endurance                {:state :shown :token "・保持時間超過"}
    :strain/refused                       {:state :computed-not-shown}
    :strain/name                          {:state :computed-not-shown}
    :strain/group                         {:state :computed-not-shown}

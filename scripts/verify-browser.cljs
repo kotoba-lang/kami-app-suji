@@ -265,6 +265,33 @@
                (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
 
+   ;; 5a2. the dose layer says how long, not only how bad.
+   ;;
+   ;; `strain` computes a holding time, whether that time is extrapolated, and the
+   ;; raw dose the four-band index is a saturating transform of. The page showed
+   ;; the band and nothing else, which cannot separate `9 %MVC, unbounded holding
+   ;; time, high 120-minute dose` from a muscle in trouble now. Read the HEADINGS:
+   ;; the paragraph above the table uses the same words.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             heads (.evaluate page
+                    "Array.from(document.querySelectorAll('th')).map(e => e.innerText.trim())")
+             marked (.evaluate page
+                     "Array.from(document.querySelectorAll('tbody td'))
+                        .map(e => e.innerText.trim())
+                        .filter(t => t.includes('当てはめ範囲') || t.startsWith('∞')).length")]
+       (let [heads (vec heads)]
+         (check! "the muscle table states a holding time and its caveat"
+                 (and (some #{"保持できる時間"} heads) (some #{"当てはめ範囲"} heads))
+                 (str "headings were " heads))
+         (check! "and the raw dose beside the band the index saturates into"
+                 (some #{"ドーズ"} heads)
+                 (str "headings were " heads))
+         (check! "every holding time carries whether it was extrapolated"
+                 (< 0 marked)
+                 (str "cells qualifying a holding time: " marked)))))
+
    ;; 5b. the coupled solve reports itself, and the report is a table rather than a
    ;; sentence about one.
    ;;
@@ -607,12 +634,12 @@
       ;; distinguishable from a check that passed.
       (cond
         ;; 16 -> 22 when the bone-mesh checks landed, 22 -> 27 with the
-        ;; lower-limb preset checks, 31 -> 40 with the coupled-solve report and the
-        ;; coverage census: an evidence floor that does not move when the suite
+        ;; lower-limb preset checks, 31 -> 43 with the coupled-solve report, the
+        ;; dose columns and the coverage census: an evidence floor that does not move when the suite
         ;; grows stops being a floor. One below the current count, so that a single
         ;; check silently failing to register is caught while an intentional
         ;; removal is a deliberate edit here.
-        (< (count @results) 39)
+        (< (count @results) 42)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

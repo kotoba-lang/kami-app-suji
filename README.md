@@ -60,7 +60,7 @@ PW_CHANNEL=chrome npm run verify:browser
 |---|---|---|
 | 純 `.cljc` の view / scene / coverage / route | `clojure -M:test` | 60 tests / 1,505 assertions |
 | 同じものを **ClojureScript で** | `npm run check:cljs` | 56 tests / 1,489 assertions |
-| 実ブラウザ | `scripts/verify-browser.cljs` | 40 checks（ローカルと公開 URL） |
+| 実ブラウザ | `scripts/verify-browser.cljs` | 43 checks（ローカルと公開 URL） |
 | lint | `clojure -M:lint` | 0 errors / 0 warnings |
 
 ⚠ **2 行目は 2026-09-08 まで存在しなかった。** この app の view も scene も
@@ -91,7 +91,7 @@ coverage も `.cljc` でありながら、検査していたのは JVM だけだ
    census を計算し直してページの 3 つの数と突き合わせる。骨メッシュの検査と同じ形
    —— ページが自分の答案を採点しない。
 
-evidence floor つき —— checks が 39 本未満なら exit **2**（0 でも 1 でもない）で
+evidence floor つき —— checks が 42 本未満なら exit **2**（0 でも 1 でもない）で
 「答えられなかった」と言って終わる。
 
 ## モデルが出した量のうち、どれだけが人に届くか

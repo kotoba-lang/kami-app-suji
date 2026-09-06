@@ -151,6 +151,41 @@
    [:div {:class "suji-figure"} value [:span {:class "suji-unit"} " " unit]]
    [:div {:class "suji-unit"} label]])
 
+(def endurance-position-label
+  "`strain/endurance-position` as a phrase, because the keyword is the whole
+  caveat and this is the only place a reader can be told it.
+
+  The dose layer is a POWER LAW with a floor bolted on and no published fit that
+  matches its coefficients, and it says so about each row: below 8 %MVC it returns
+  infinity by construction, between 8 and 10 it returns a number the reference has
+  no data under, and above 100 it prices a holding time for a load the muscle
+  cannot hold. A band alone — which is all this app showed until 2026-09-08 —
+  cannot distinguish those from an answer inside the fitted range."
+  {:below-endurance-floor "モデルの床より下（∞ は構造上の値）"
+   :below-fitted-range "文献の当てはめ範囲より下"
+   :within-fitted-range "当てはめ範囲内"
+   :above-maximum-voluntary-contraction "最大随意収縮より上（保持時間は定義されない）"})
+
+(defn endurance-label
+  "How long this muscle can hold this load, with what qualifies the number.
+
+  `∞` is not a missing value — below the model's floor the acute term is zero by
+  construction — so it is printed as itself rather than as a dash, which would be
+  the same character the refused rows use for `no answer`."
+  [st]
+  (let [m (:endurance-minutes st)
+        ;; the caveat goes on the ∞ TOO. `:extrapolated?` is true below the
+        ;; endurance floor — the infinity is `the model returns no acute failure
+        ;; point here`, a modelling choice, and not a measurement that a muscle can
+        ;; be held indefinitely. Marking only the finite numbers would put the one
+        ;; value in the column that most invites relief on the page unqualified,
+        ;; which is where the coverage probe found it missing.
+        caveat (when (:endurance-extrapolated? st) "（外挿）")]
+    (cond
+      (nil? m) "—"
+      (not (math/finite? m)) (str "∞" caveat)
+      :else (str (math/fmt-fixed m 1) " 分" caveat))))
+
 (defn joint-name
   "A joint key as the page writes it. `(name :hip/left)` is `left`, which loses
   the joint; the qualifier is half the identity in a bilateral model, so the whole
@@ -409,14 +444,15 @@
         "活動を要さず代謝コストも無い。"]
        (dds/table
         {:headers ["筋" "モーメントアーム" "張力（能動/受動）" "出せる力" "%MVC" "帯"
-                   (str (int (:session-minutes state)) "分後")]
+                   "保持できる時間" "ドーズ"
+                   (str (int (:session-minutes state)) "分後") "当てはめ範囲"]
          :rows (mapv (fn [t st]
                        (if (:refused t)
                          ;; A refusal is shown AS a refusal. Rendering a dash in
                          ;; the %MVC column and nothing else would let a reader
                          ;; take it for a small number; the reason is the answer.
                          [(str/replace (:name t) "_" " ")
-                          (coeff-label t) "—" "—" "適用範囲外" "—" "—"]
+                          (coeff-label t) "—" "—" "適用範囲外" "—" "—" "—" "—" "—"]
                          [(str/replace (:name t) "_" " ")
                           (coeff-label t)
                           ;; active and passive shown apart: one is asked for and
@@ -449,8 +485,26 @@
                             (:inactive? t) "無活動（最適解が切っている）"
                             (:ligament? t) "靭帯"
                             :else (or (:band (scene/band-for (:mvc-pct t))) "—"))
+                          ;; HOW LONG IT CAN BE HELD, which is the ergonomic
+                          ;; question and was computed and discarded. The band
+                          ;; alone cannot answer it: a muscle at 9 %MVC has an
+                          ;; unbounded holding time and a high 120-minute dose,
+                          ;; and both are true.
+                          (endurance-label st)
+                          ;; the dose itself, of which the index is a saturating
+                          ;; transform. `suji` kept it because the index runs out
+                          ;; of range where the dose does not — above about 0.70
+                          ;; the four bands stop distinguishing and this column
+                          ;; goes on.
+                          (if (number? (:dose st)) (math/fmt-fixed (:dose st) 3) "—")
                           (str (strain/stiffness-band (:stiffness-index st))
-                               (when (:saturated? st) "（飽和）"))]))
+                               (when (:saturated? st) "（飽和）")
+                               (when (:over-endurance st) "・保持時間超過"))
+                          ;; the caveat that qualifies the holding time, per row.
+                          ;; Without it an extrapolated number and a fitted one are
+                          ;; the same shape, which is the defect `strain/endurance`
+                          ;; exists to have fixed one layer down.
+                          (get endurance-position-label (:endurance-position st) "—")]))
                      tensions strains)})
        ;; The reason comes from the data, not from a sentence written here. There
        ;; is more than one way this model declines — too little leverage for a
