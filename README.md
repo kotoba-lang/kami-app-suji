@@ -11,8 +11,10 @@
   → 前方運動学で 3 次元に配置        suji.methods.pose
   → 静的逆動力学（RNEA の重力項）      suji.methods.load
   → 頸椎圧縮荷重（Hansraj 2014 で検証）
-  → 筋張力と %MVC（Hill 型モーメントアーム）  suji.methods.muscle
-  → 作業時間ぶんの強張り（Rohmert）      suji.methods.strain
+  → 起始・停止から幾何で出したモーメントアーム  suji.methods.attachment
+  → 拮抗筋間の荷重配分（Crowninshield-Brand） suji.methods.recruit
+  → 筋張力と %MVC（Hill 型長さ-張力）         suji.methods.muscle
+  → 作業時間ぶんのドーズ（べき則）           suji.methods.strain
   → 描画シーン                        kami.app-suji.scene
   → WebGPU / WebGL 2.0                kami.webgpu.mesh
 ```
@@ -53,8 +55,8 @@ PW_CHANNEL=chrome npm run verify:browser
 
 | 何を | どう | 結果 |
 |---|---|---|
-| scene / route（純 `.cljc`） | `clojure -M:test` | 17 tests / 126 assertions |
-| 実ブラウザ | `scripts/verify-browser.cljs` | 16 checks |
+| 純 `.cljc` の view / scene / route | `clojure -M:test` | 53 tests / 1,401 assertions |
+| 実ブラウザ | `scripts/verify-browser.cljs` | 31 checks（ローカルと公開 URL） |
 | lint | `clojure -M:lint` | 0 errors / 0 warnings |
 
 ⚠ **この表は 2026-09-06 まで初回の値（10 / 86 / 8）のまま止まっていた。** 更新している
@@ -104,10 +106,30 @@ evidence floor つき —— checks が 7 本未満なら exit **2**（0 でも 
 
 ## いま無いもの（正直に）
 
-- 矢状面 2 次元の連鎖である。前額面・回旋を持たない。
-- 冗長筋の静的最適化（Crowninshield–Brand 型）を持たない。1 関節 1 筋の直接割当。
-- モーメントアームは角度に依存しない定数。
-- 骨の形状は円柱であって解剖学的メッシュではない（`biomech` の roadmap でも
-  anatomical mesh ingestion は未実装）。
-- `route.cljc` はこのワークスペースで **3 つ目**の同型のコピーであり、`kotoba-uiux`
-  skill が言う抽出の trigger は既に引かれている。抽出と既存 2 app の移行は別変更。
+⚠ **この節は 2026-09-07 まで、5 項目のうち 5 項目が偽だった。** どれも「無い」と
+書いてあるものが実際には在り、しかも在るようになった日から一度も直されていなかった。
+実測して置き換えた記録:
+
+| 書いてあったこと | 実測 |
+|---|---|
+| 矢状面 2 次元、前額面・回旋を持たない | 両側 3 次元。前額面軸の筋 5 群、頭部回旋の入力あり |
+| Crowninshield-Brand を持たない、1 関節 1 筋の直接割当 | `suji.methods.recruit/share` がそれである |
+| モーメントアームは角度に依存しない定数 | 幾何から導出。頸部伸筋は頭部前屈 0→60° で 0.020043 → 0.012000 m |
+| 骨は円柱であって解剖学的メッシュではない | 10 種の解剖形状。円柱で描かれる骨は 1 本も無い |
+| `route.cljc` は 3 つ目の同型コピー | `kotoba-lang/route` に抽出済み。ここに残るのは 22 行の view 表 |
+
+`method-view` の同じ節も同じ日に同じ理由で偽になっていたので、あちらは**数と一覧を
+モデルから計算する**ようにした。README は静的ファイルなので計算できない代わりに、
+`the-readme-does-not-call-absent-what-the-model-has` が「無い」と書かれたものが
+本当に無いかを検査する。
+
+いま本当に無いもの:
+
+- **後頭下筋のうち下頭斜筋**。両端が `upper_cervical` に乗る。環軸関節が要る。
+- **C2/C3 で解かれる筋**。3 つが跨ぐが、そこで作用するものは無い。阻んでいるのは
+  分節化ではなく出典で、集中定数 `cervical_extensors` の 12.0 cm² 自体に出典が無い。
+- **複数制約の同時解**。`recruit` の閉形式は等式制約を 1 本しか取らないので、
+  2 関節筋の他関節モーメントは計算して報告するだけ。環椎後頭では、その未処理分が
+  それを吸収すべき解剖の総容量の 1.85 倍ある。
+- **下位頸椎 5 レベルと腰椎 5 レベルは、それぞれ 1 つの向きを共有する。**
+- 筋の付着は点であって、複数椎骨にまたがる面ではない。

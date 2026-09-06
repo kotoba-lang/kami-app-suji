@@ -11,6 +11,10 @@
   else catches was itself outside every check. The markers were found by reading
   the file, which is not a method."
   (:require [clojure.java.io :as io]
+            [kami.app-suji.core :as core]
+            [kami.app-suji.core-test]
+            [suji.methods.attachment :as attachment]
+            [suji.methods.recruit]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
@@ -60,3 +64,78 @@
           (str "the browser checker does not read as Clojure data: " (:error result)))
       (is (< 5 (count (:forms result)))
           (str "expected the checker to read as many forms, got " (count (:forms result)))))))
+
+(deftest the-readme-does-not-call-absent-what-the-model-has
+  ;; The README's "いま無いもの（正直に）" section had five items on 2026-09-07 and
+  ;; every one of them was false — each named something the model had acquired,
+  ;; and none had been corrected on the day it arrived. `method-view` had the same
+  ;; section go stale the same way; there the fix was to compute the counts, which
+  ;; a static file cannot do. This is the substitute: whatever the README says is
+  ;; absent has to actually be absent.
+  ;;
+  ;; Each probe is a fact about the model, not about the prose, so the test fails
+  ;; when the MODEL gains the thing rather than when someone rewords the sentence.
+  ;; Only the BULLETS are read, not the whole section. The section also carries a
+  ;; table recording what each false claim used to say — quoting a corrected claim
+  ;; is not making it, and a test that cannot tell a record from an assertion
+  ;; would force the document to drop the record to stay green.
+  (let [readme (slurp "README.md")
+        section (second (str/split readme #"## いま無いもの（正直に）"))
+        gaps (when section
+               (->> (str/split-lines section)
+                    (take-while #(not (str/starts-with? % "## ")))
+                    (filter #(str/starts-with? % "- "))
+                    (str/join "\n")))]
+    (is (some? section) "the README has no `いま無いもの` section")
+    (is (seq gaps) "the section has no bullets, so this asserts nothing")
+    (doseq [[phrase present? what]
+            [["前額面・回旋を持たない"
+              (seq (filter #(= :frontal (:axis %)) (vals attachment/muscles)))
+              "frontal-axis muscles"]
+             ["Crowninshield–Brand 型）を持たない"
+              (some? (resolve 'suji.methods.recruit/share))
+              "recruit/share"]
+             ["モーメントアームは角度に依存しない定数"
+              ;; the same muscle at two head angles, through the app's own solve
+              (let [arm (fn [d] (:coeff (first (filter #(= "cervical_extensors" (:name %))
+                                                       (:tensions (core/solved
+                                                                   (assoc-in core/initial-state
+                                                                             [:posture :head-flexion-deg] d)))))))]
+                (not= (arm 0.0) (arm 20.0)))
+              "a moment arm that changes with posture"]
+             ["骨の形状は円柱"
+              (not-any? #{:cylinder} (map :geo (:bones (:scene (core/solved core/initial-state)))))
+              "bones drawn as anatomical shapes"]]]
+      (when present?
+        (is (not (str/includes? gaps phrase))
+            (str "the README says `" phrase "` and the model has " what))))))
+
+(deftest the-readme-verification-table-is-not-stale
+  ;; The table carries its own warning that it had been stale once, and it went
+  ;; stale again: 17 tests / 126 assertions and 16 browser checks, against 53 and
+  ;; 31. A number written by hand beside a number that grows will be wrong; this
+  ;; makes it wrong loudly.
+  ;;
+  ;; A BOUND, not an equality. An exact match would make this test the thing that
+  ;; goes stale — every commit adding a test would have to edit the README too,
+  ;; and the first person in a hurry would loosen the assertion rather than the
+  ;; document. Half is chosen because the failure that actually happened was a
+  ;; factor of three, and a bound that cannot catch the failure it was written for
+  ;; is theatre.
+  ;;
+  ;; ⚠ My first version bounded against the deftests of ONE namespace, which 17
+  ;; satisfied — it passed on exactly the stale table it exists to catch.
+  (let [readme (slurp "README.md")
+        nss '[kami.app-suji.core-test kami.app-suji.scene-test
+              kami.app-suji.route-test kami.app-suji.bone-shape-test
+              kami.app-suji.repo-test]
+        actual (reduce + (for [n nss]
+                           (do (require n)
+                               (count (filter #(:test (meta %)) (vals (ns-publics n)))))))
+        claimed (some-> (re-find #"(\d+) tests / ([\d,]+) assertions" readme)
+                        second parse-long)]
+    (is (< 20 actual) (str "only " actual " deftests found, so the bound is meaningless"))
+    (is (some? claimed) "the verification table states no test count")
+    (is (<= (quot actual 2) claimed)
+        (str "the table claims " claimed " tests and the suite has " actual
+             " — more than a factor of two apart"))))
