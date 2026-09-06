@@ -165,17 +165,132 @@
       :else {:kind :none})))
 
 ;; --- geometry placement ------------------------------------------------------
-;; `kami.webgpu.geometry/cylinder` is built along +Y and centred, so a bone is that
-;; unit cylinder scaled to its length, rotated about Z onto its direction, and
+;; Every generator in `kami.webgpu.geometry` is built along +Y and centred, so a
+;; bone is that shape scaled to its length, rotated about Z onto its direction and
 ;; translated to its midpoint. The pose already carries the rotation as `:euler-z`,
 ;; so this is placement, not trigonometry.
+;;
+;; A BONE IS TESSELLATED AT ITS OWN SIZE, NOT AT UNIT SIZE AND SCALED. That is a
+;; change from how the cylinder was drawn, and it was forced by measurement.
+;;
+;; The cylinder could be built once at radius 1 / height 1 and scaled by
+;; [r, L, r], because a cylinder's side normals are purely radial and its cap
+;; normals are purely axial: an anisotropic scale leaves both correct by accident.
+;; An anatomical bone has neither property. Two things break:
+;;
+;;   1. Its normals. Under a scale of [0.032, 0.31, 0.032] a normal has to be
+;;      transformed by the inverse transpose, and `mesh/model-matrix` does not do
+;;      that. The condylar flares — the whole point of this shape — are exactly
+;;      the surfaces whose normals have a large axial component, so they are
+;;      exactly the ones a 10:1 anisotropic scale would light wrongly.
+;;   2. Its topology. `loft` splits a ring into a hard edge when the two bands
+;;      meet more sharply than 60°, and how sharp that is depends on the ASPECT
+;;      RATIO. Measured 2026-09-07 with the humerus parameters: at unit aspect the
+;;      mesh has 378 vertices, at the real 0.31 m × 0.032 m it has 357 — one ring
+;;      creases at unit aspect that does not crease on a real humerus. So the unit
+;;      template is not the sized mesh, and drawing it scaled would put hard
+;;      shading edges where the real bone is smooth.
+;;
+;; Tessellating per frame is not affordable either — stature is a live slider and
+;; each rebuild is a GPU upload. So the length is BUCKETED geometrically: at most
+;; one mesh per 5% of length, which bounds a full sweep of the stature slider to
+;; about nine meshes per bone instead of one per frame, and leaves a residual
+;; scale of under 2.5% on one axis. `bone-mesh-length-m` below is that bucket, and
+;; it is here in the pure layer so it can be asserted without a GPU.
+
+(def bone-mesh-length-step
+  "Geometric bucket ratio for bone mesh lengths. 1.05 = a new mesh every 5%."
+  1.05)
+
+(defn bone-mesh-length-m
+  "The length a bone's mesh is actually built at: `length-m` rounded to the
+  nearest `bone-mesh-length-step` power. The draw then scales y by the leftover
+  ratio, which is bounded by ±2.47% — small enough that the normals it does not
+  correct are within about 1.5° of true."
+  [length-m]
+  (let [l (max 1e-4 (double length-m))
+        k (Math/round (/ (Math/log l) (Math/log bone-mesh-length-step)))]
+    (Math/pow bone-mesh-length-step k)))
 
 (def bone-radius-m
   "Drawn thickness per segment (metres). Visual only — the physics is a line-mass
   model and carries no cross-section, so this is honestly decoration and is stated
   here rather than hidden in a shader."
   {"pelvis" 0.055 "thorax_abdomen" 0.062 "head_neck" 0.048
-   "upper_arm" 0.032 "forearm" 0.026 "hand" 0.020})
+   "upper_arm" 0.032 "forearm" 0.026 "hand" 0.020
+   ;; the lower limb, for whenever suji grows one
+   "thigh" 0.042 "shank" 0.033 "foot" 0.024})
+
+(def bone-shapes
+  "Shape catalogue: a kind → the generator to call and the proportions to call it
+  with. Pure data — the app does no geometry arithmetic, it hands these straight
+  to `kami.webgpu.geometry`, which owns every number that has to be derived.
+
+  The parameters here are anthropometry, not tessellation: how far an epiphysis
+  flares, over what fraction of the length, how oval the section is, how much the
+  shaft bows. A femur, a humerus and a phalanx are the same generator with
+  different values of those four, which is why there is one `:long-bone` entry per
+  bone rather than one function per bone.
+
+  `:length` and `:shaft-radius`/`:radius` are deliberately absent: they are 1.0,
+  and the draw transform supplies the real ones (see the note above)."
+  {:humerus        {:generator :long-bone
+                    :params {:sectors 20 :proximal-flare 1.55 :distal-flare 1.75
+                             :epiphysis-frac 0.16 :flatten 0.88 :bow 0.10}}
+   :radius-ulna    {:generator :long-bone
+                    :params {:sectors 20 :proximal-flare 1.7 :distal-flare 1.35
+                             :epiphysis-frac 0.13 :flatten 0.72 :bow 0.22}}
+   :femur          {:generator :long-bone
+                    :params {:sectors 20 :proximal-flare 1.85 :distal-flare 2.05
+                             :epiphysis-frac 0.17 :flatten 0.92 :bow 0.28}}
+   :tibia          {:generator :long-bone
+                    :params {:sectors 20 :proximal-flare 1.9 :distal-flare 1.4
+                             :epiphysis-frac 0.15 :flatten 0.78 :bow 0.08}}
+   ;; a hand or a foot is a bundle of short bones; drawn as one, it is a stubby
+   ;; long bone that is much wider than it is deep
+   :short-bone     {:generator :long-bone
+                    :params {:sectors 16 :proximal-flare 1.35 :distal-flare 1.25
+                             :epiphysis-frac 0.26 :flatten 0.5 :bow 0.0}}
+   :vertebral-column {:generator :vertebral-body
+                      :params {:sectors 20 :endplate-flare 1.22 :waist 0.78
+                               :posterior-flatten 0.6}}
+   :pelvic-block   {:generator :vertebral-body
+                    :params {:sectors 20 :endplate-flare 1.45 :waist 0.72
+                             :posterior-flatten 0.78}}
+   :cranium        {:generator :vertebral-body
+                    :params {:sectors 20 :endplate-flare 1.3 :waist 0.92
+                             :posterior-flatten 0.85}}
+   ;; the fallback. suji is growing segments (a lower limb, a scapulothoracic
+   ;; element) and a name this app has never heard of must get a bone, not a
+   ;; crash and not an invisible draw.
+   :generic-long-bone {:generator :long-bone
+                       :params {:sectors 16 :proximal-flare 1.5 :distal-flare 1.5
+                                :epiphysis-frac 0.15 :flatten 0.85 :bow 0.0}}})
+
+(def default-bone-shape
+  "What an unrecognised segment is drawn as. Named rather than inlined so the test
+  that a new segment still gets a bone can assert the same thing the code uses."
+  :generic-long-bone)
+
+(def bone-shape-by-segment
+  "Segment base name → a key of `bone-shapes`. Axial segments are drawn as the
+  vertebral column they are: this model's trunk IS its spine, and the discs it
+  reports are the joints between these."
+  {"pelvis" :pelvic-block
+   "thorax_abdomen" :vertebral-column
+   "head_neck" :cranium
+   "upper_arm" :humerus
+   "forearm" :radius-ulna
+   "hand" :short-bone
+   "thigh" :femur
+   "shank" :tibia
+   "foot" :short-bone})
+
+(defn bone-shape
+  "The shape key for a segment base name. Total: an unknown name falls back rather
+  than returning nil, because a nil shape is a bone that silently does not draw."
+  [base]
+  (get bone-shape-by-segment base default-bone-shape))
 
 (defn bone-draws
   "One draw per placed segment."
@@ -184,8 +299,14 @@
           (let [mid (math/vmid proximal distal)
                 {:keys [kind mvc-pct] :as st} (segment-state tensions base side)]
             {:label name
-             :geo :cylinder
+             :geo (bone-shape base)
              :radius-m (get bone-radius-m base 0.03)
+             ;; what mesh to build, as opposed to where to put it. The viewport
+             ;; caches on this map, so a bone only re-tessellates when its own
+             ;; size leaves the bucket.
+             :mesh {:kind (bone-shape base)
+                    :length-m (bone-mesh-length-m length-m)
+                    :radius-m (get bone-radius-m base 0.03)}
              :state kind
              :refused-names (:names st)
              :mvc-pct mvc-pct
