@@ -163,6 +163,19 @@
        (check! "and it says the level profile is not the validated one"
                (str/includes? (or body "") "検証されていない")
                "expected the unvalidated caveat next to the table")
+       ;; Read the column HEADINGS, not the page text. The paragraph above the
+       ;; table names both 筋ぶん and 靭帯ぶん, so a body-text search would go on
+       ;; passing after the column itself was deleted — which is exactly what
+       ;; the first version of the JVM test for this did.
+       (p/let [heads (.evaluate page "Array.from(document.querySelectorAll('th')).map(e => e.innerText.trim())")
+               cells (.evaluate page "Array.from(document.querySelectorAll('tbody tr')).map(r => r.querySelectorAll('td').length)")]
+         (let [heads (vec heads) cells (vec cells)]
+           (check! "the spine table separates the muscle and ligament terms"
+                   (and (some #{"筋ぶん"} heads) (some #{"靭帯ぶん"} heads))
+                   (str "headings were " heads))
+           (check! "and every level fills every column"
+                   (and (seq cells) (every? #(= (count heads) %) cells))
+                   (str (count heads) " headings but rows of " cells))))
        (p/let [_ (.click page "a[href='#/']")
                _ (.waitForSelector page "#suji-canvas")]
          nil)))
