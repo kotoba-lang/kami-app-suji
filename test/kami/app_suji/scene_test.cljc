@@ -80,18 +80,26 @@
       (is (>= (+ cx half-w) max-x) (str (:name w) " @" aspect ": back is cut off")))))
 
 (deftest a-refused-segment-is-neither-green-nor-red
-  ;; At 90° of shoulder flexion this model's straight-line anterior deltoid passes
-  ;; through the joint it acts about, and `suji` declines to compute its force.
-  ;; The picture must decline too: colouring the arm green would say the posture is
-  ;; easy, colouring it red would say it is hard, and the model said neither.
+  ;; With the head folded past horizontal, this model's one-sided suspension line
+  ;; would pull the girdle DOWN, so `suji` declines to give upper trapezius and
+  ;; levator scapulae a force. The picture must decline too: colouring the arm
+  ;; green would say the posture is easy, red would say it is hard, and the model
+  ;; said neither.
+  ;;
+  ;; This test used to reach the refusal through 90° of shoulder flexion, where
+  ;; the anterior deltoid's straight chord passed through the joint. Wrapping
+  ;; surfaces (suji eb3243d5) removed that one — the arm now floors at the humeral
+  ;; head's radius — so the trigger moved rather than the behaviour.
   (let [state (-> core/initial-state
-                  (assoc-in [:posture :shoulder-flexion-deg] 90.0)
-                  (assoc-in [:posture :elbow-flexion-deg] 0.0))
+                  (assoc-in [:posture :head-flexion-deg] 60.0)
+                  (assoc-in [:posture :trunk-flexion-deg] 60.0))
         {:keys [tensions scene]} (core/solved state)
-        deltoid (first (filter #(= "anterior_deltoid" (:name %)) tensions))
+        refused (filter :refused tensions)
         arm-bone (first (filter #(= "upper_arm" (:label %)) (:bones scene)))]
-    (is (:refused deltoid)
-        "the premise of this test: suji refuses the deltoid at 90° shoulder flexion")
+    (is (seq refused)
+        "the premise of this test: suji refuses the suspension muscles here")
+    (is (every? #(= :acts-the-wrong-way (:refused %)) refused)
+        "and refuses them for acting the wrong way, not for want of leverage")
     (is (= :refused (:state arm-bone)))
     (is (= scene/refused-rgb (:color arm-bone)))
     (is (nil? (:mvc-pct arm-bone)) "a refused segment has no %MVC to show")
@@ -101,13 +109,23 @@
       (is (not= scene/refused-rgb (scene/ramp-rgb pct))
           (str "the refusal colour must not collide with the load ramp at " pct "%")))))
 
+(deftest a-wrapped-joint-is-no-longer-refused
+  ;; the wrapping surfaces are load-bearing for this app: 90° of shoulder flexion
+  ;; is an ordinary posture and used to come back unanswerable
+  (let [{:keys [tensions]} (core/solved (-> core/initial-state
+                                            (assoc-in [:posture :shoulder-flexion-deg] 90.0)
+                                            (assoc-in [:posture :elbow-flexion-deg] 0.0)))
+        deltoid (first (filter #(= "anterior_deltoid" (:name %)) tensions))]
+    (is (nil? (:refused deltoid)))
+    (is (some? (:mvc-pct deltoid)))))
+
 (deftest the-summary-does-not-call-an-incomplete-answer-complete
   (let [complete (core/solved core/initial-state)
         refused (core/solved (-> core/initial-state
-                                 (assoc-in [:posture :shoulder-flexion-deg] 90.0)
-                                 (assoc-in [:posture :elbow-flexion-deg] 0.0)))]
-    (is (:complete? (muscle/tension-summary (:tensions complete))))
-    (is (not (:complete? (muscle/tension-summary (:tensions refused)))))))
+                                 (assoc-in [:posture :head-flexion-deg] 60.0)
+                                 (assoc-in [:posture :trunk-flexion-deg] 60.0)))]
+    (is (:complete? (muscle/tension-summary (:tensions complete) (:loads complete))))
+    (is (not (:complete? (muscle/tension-summary (:tensions refused) (:loads refused)))))))
 
 (deftest out-of-plane-input-reaches-the-picture
   ;; the frontal plane is new; a control that changes nothing on screen is a lie

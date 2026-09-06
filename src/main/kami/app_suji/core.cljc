@@ -180,11 +180,19 @@
                           (str (strain/stiffness-band (:stiffness-index st))
                                (when (:saturated? st) "（飽和）"))]))
                      tensions strains)})
+       ;; The reason comes from the data, not from a sentence written here. There
+       ;; is more than one way this model declines — too little leverage for a
+       ;; straight line (which a wrapping surface fixes) and a line that would act
+       ;; the wrong way at this posture (which nothing here fixes) — and a fixed
+       ;; explanation would keep naming the first after the second became the only
+       ;; one that happens. Measured 2026-09-06: wrapping surfaces removed every
+       ;; leverage-floor refusal, and the hardcoded sentence went on citing them.
        (when-let [r (seq (filter :refused tensions))]
-         [:p {:class "suji-note"}
-          "この姿勢では " (str/join "・" (map #(str/replace (:name %) "_" " ") r))
-          " の力を計算していない。直線モデルには腱の巻き付き面が無く、"
-          "作用線が関節を通る近傍では必要張力が発散するため、モデルが答えを拒否している。"])
+         (into [:div]
+               (for [t r]
+                 [:p {:class "suji-note"}
+                  [:strong (str/replace (:name t) "_" " ")]
+                  " の力を計算していない（" (name (:refused t)) "）—— " (:note t)])))
        (when-not (:complete? (muscle/tension-summary tensions loads))
          [:p {:class "suji-note"}
           "この結果は不完全である —— 荷重の一部はどの筋にも割り当てられていない。"]))]]))

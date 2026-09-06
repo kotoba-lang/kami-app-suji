@@ -110,8 +110,8 @@
                 "(() => {
                    const set = (id, v) => { const el = document.getElementById(id);
                      el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); };
-                   set('posture-shoulder-flexion-deg', 90);
-                   set('posture-elbow-flexion-deg', 0);
+                   set('posture-head-flexion-deg', 60);
+                   set('posture-trunk-flexion-deg', 60);
                  })()")
              _ (.waitForTimeout page 400)
              body (.evaluate page "document.body.innerText")]
@@ -119,7 +119,7 @@
                (str/includes? (or body "") "適用範囲外")
                "expected the out-of-range marker in the muscle table")
        (check! "and the reason is given, not just a dash"
-               (str/includes? (or body "") "巻き付き面")
+               (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
 
    ;; 6. an out-of-plane control actually moves the picture
