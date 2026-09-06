@@ -60,10 +60,23 @@
                       "semispinalis_capitis" "splenius_capitis" "sternocleidomastoid"}
    ;; C2/C3 has muscles CROSSING it but none acting AT it — suji names that gap
    ;; itself, and an empty set here is the honest reading of it rather than a
-   ;; missing key.
+   ;; missing key. suji 1af4590 measured WHY: not the segmentation (all three
+   ;; muscles that act there span two of its bones and have arms that move) but
+   ;; provenance — no published cross-section, and the lumped cervical group
+   ;; already stands for two of them. So this stays empty, and a muscle arriving
+   ;; here later will arrive with a citation.
    "upper_cervical" #{}
+   ;; the skull hangs from the atlanto-occipital joint, so its colour reports that
+   ;; joint's load — BOTH directions of it since suji 1af4590. The first three are
+   ;; the suboccipital extensors; the last two are the flexors that joint had none
+   ;; of, and they are the antagonists of the first three at the same joint. One
+   ;; segment can only be one colour, and `segment-state` already takes the MAX
+   ;; %MVC over the groups on the segment, so the skull is coloured by whichever
+   ;; side of the joint is working. Before this, nothing on the skull could carry a
+   ;; head held back against a headrest and the segment went to `:kind :none`.
    "head"           #{"rectus_capitis_posterior_major" "rectus_capitis_posterior_minor"
-                      "obliquus_capitis_superior"}
+                      "obliquus_capitis_superior"
+                      "longus_capitis" "rectus_capitis_anterior"}
    "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"
                       "posterior_lumbar_ligaments"}
    ;; THE WHOLE LOWER LIMB WAS MISSING FROM THIS MAP, and had been since suji grew

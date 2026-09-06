@@ -16,7 +16,11 @@
         ;; the UI has to show that rather than a number.
         io.github.cloud-itonami/suji
         {:git/url "https://github.com/cloud-itonami/suji.git"
-         :git/sha "1c7ad973e8cbd20f4f38aca4c3a8cbcc8d6e60bd"}
+         ;; 1af4590 gives the atlanto-occipital joint its FLEXORS (longus_capitis,
+         ;; rectus_capitis_anterior). Two new groups reach `joint-muscles`, and the
+         ;; guard test below is what makes forgetting them unshippable rather than
+         ;; invisible.
+         :git/sha "1af4590fd0eb806c7d17729d218cdde5d1ba9fea"}
 
         ;; デジタル庁デザインシステム — the workspace's base design system
         ;; (owner decision 2026-08-05). App CSS is written to the --hig-* token
