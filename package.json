@@ -1,0 +1,20 @@
+{
+  "name": "kami-app-suji",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "release": "rm -rf public/js && mkdir -p public/js && shadow-cljs release app",
+    "check": "clojure -M:test",
+    "page": "nbb --classpath \"$(clojure -Spath)\" scripts/gen-page.cljs",
+    "page:check": "nbb --classpath \"$(clojure -Spath)\" scripts/gen-page.cljs --check",
+    "verify:browser": "nbb --classpath \"$(clojure -Spath)\" scripts/verify-browser.cljs"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "shadow-cljs": "2.28.20"
+  },
+  "devDependencies": {
+    "playwright": "1.48.0"
+  }
+}

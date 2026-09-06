@@ -1,0 +1,98 @@
+(ns kami.app-suji.ui
+  "Mount, state and the event loop. Everything renderable lives in
+  `kami.app-suji.core` as pure functions of a state map; this namespace holds the
+  one atom, the fragment listener and the canvas lifecycle.
+
+  Recomputation is synchronous and total: a slider move rebuilds the body, the
+  pose, the loads, the tensions and the scene from scratch. That is affordable
+  because `suji` is pure arithmetic over six segments — there is no solver to warm
+  and no state to invalidate — and it means the picture and the numbers are always
+  the same instant's answer."
+  (:require [kami.app-suji.core :as core]
+            [kami.app-suji.route :as route]
+            [kami.app-suji.viewport :as viewport]
+            [reagent.core :as r]
+            [reagent.dom.client :as rdomc]
+            [suji.methods.posture :as posture]))
+
+(defonce app-state (r/atom core/initial-state))
+(defonce root (atom nil))
+
+(defn- apply-preset [state preset-name]
+  (if-let [w (first (filter #(= preset-name (:name %)) posture/reference-workstations))]
+    (assoc state :posture (assoc (posture/posture-from-workstation w) :preset preset-name))
+    state))
+
+(defn- set-path [state path v]
+  (-> (assoc-in state path v)
+      ;; a hand-moved slider is no longer any preset; saying it still is would be a
+      ;; label that quietly stops being true
+      (cond-> (= (take 1 path) [:posture]) (update :posture dissoc :preset))))
+
+(defn- on-input [e]
+  (let [t (.-target e)]
+    (when-let [p (.getAttribute t "data-path")]
+      (let [path (mapv keyword (.split p "/"))
+            v (js/parseFloat (.-value t))]
+        (when-not (js/isNaN v) (swap! app-state set-path path v))))))
+
+(defn- on-click [e]
+  (when-let [preset (some-> (.-target e) (.closest "[data-preset]")
+                            (.getAttribute "data-preset"))]
+    (swap! app-state apply-preset preset)))
+
+(defn- sync-route! []
+  (swap! app-state assoc :view (:id (route/fragment->view (.-hash js/location)))))
+
+(defonce ^:private binding-canvas? (atom false))
+
+(defn- ensure-canvas!
+  "Bind the canvas if it is present and not bound yet.
+
+  This runs after EVERY render rather than once at startup. React 18's
+  `createRoot().render()` commits asynchronously, so the canvas does not exist
+  yet when `init!` returns; a single `requestAnimationFrame` after mount raced it
+  and lost, and because the attempt was never repeated the viewport stayed
+  uninitialised for the life of the page — with no error anywhere, since
+  `when-let` on a missing element simply does nothing. (Measured 2026-09-06: the
+  canvas kept its default 300x150 backing store and the page reported no
+  backend.) It also handles the canvas going away and coming back when the reader
+  leaves the simulator view and returns.
+
+  `binding-canvas?` guards against starting a second init while the first
+  promise is still in flight — after-render fires again before it resolves."
+  []
+  (when-let [canvas (.getElementById js/document "suji-canvas")]
+    (when (and (nil? (:viewport @viewport/state)) (not @binding-canvas?))
+      (reset! binding-canvas? true)
+      (viewport/init! canvas
+                      (fn [backend]
+                        (reset! binding-canvas? false)
+                        (swap! app-state assoc :backend backend)
+                        (viewport/render! (:scene (core/solved @app-state))))
+                      (fn [msg]
+                        (reset! binding-canvas? false)
+                        (swap! app-state assoc :backend :unavailable :gpu-error msg)
+                        (js/console.error "kami-app-suji: no GPU backend —" msg))))))
+
+(defn root-view []
+  (let [state @app-state]
+    ;; Draw after React has committed this render, so the canvas exists and has
+    ;; its laid-out size. Reading the scene here keeps the frame and the numbers
+    ;; on the same state value.
+    (r/after-render (fn []
+                      (ensure-canvas!)
+                      (viewport/render! (:scene (core/solved state)))))
+    (core/app state)))
+
+(defn ^:export init! []
+  (sync-route!)
+  (.addEventListener js/window "hashchange" sync-route!)
+  (.addEventListener js/document "input" on-input)
+  (.addEventListener js/document "click" on-click)
+  (.addEventListener js/window "resize"
+                     #(viewport/render! (:scene (core/solved @app-state))))
+  (let [el (.getElementById js/document "app")
+        rt (rdomc/create-root el)]
+    (reset! root rt)
+    (rdomc/render rt [root-view])))
