@@ -40,6 +40,35 @@
 (defn- flexed [deg]
   (assoc-in core/initial-state [:posture :trunk-flexion-deg] (double deg)))
 
+(deftest a-direction-cosine-is-never-printed-as-millimetres
+  ;; `recruit` returns a moment arm in metres for a moment equilibrium and a
+  ;; dimensionless direction cosine for a suspended force. The unit guard in
+  ;; `coeff-label` looked the task up in a GROUP-keyed map by INSTANCE name, so it
+  ;; returned nil for every paired muscle and never fired: the default view shipped
+  ;; six rows reading "343.3 mm" / "480.9 mm" / "176.9 mm" — a 34 cm moment arm at
+  ;; the shoulder.
+  ;;
+  ;; Asserted through `coeff-label` on real solved tensions rather than on a
+  ;; hand-built map, because the defect was the shape of the real data (instance
+  ;; names) and a constructed entry would have been given the shape the code
+  ;; expected.
+  (let [ts (:tensions (core/solved core/initial-state))
+        susp (filter #(= :scapular-suspension (:task %)) ts)
+        moments (filter #(and (:task %) (not= :scapular-suspension (:task %))
+                              (number? (:coeff %))) ts)]
+    (is (seq susp) "the default posture must actually contain suspension tasks")
+    (is (every? #(str/includes? (core/coeff-label %) "(cos)") susp)
+        (str "suspension coefficients are cosines, got "
+             (pr-str (mapv (juxt :name core/coeff-label) susp))))
+    (is (not-any? #(str/includes? (core/coeff-label %) "mm") susp)
+        (str "no suspension row may carry a length unit, got "
+             (pr-str (mapv (juxt :name core/coeff-label) susp))))
+    ;; The control: without it this test would also pass if EVERY row lost its "mm".
+    (is (seq moments) "the default posture must also contain moment tasks")
+    (is (every? #(str/includes? (core/coeff-label %) "mm") moments)
+        (str "moment-arm coefficients are still millimetres, got "
+             (pr-str (mapv (juxt :name core/coeff-label) moments))))))
+
 (deftest the-spine-table-names-muscle-and-ligament-separately
   (let [hs (headers (core/spine-view (flexed 60)))]
     (is (some #{"筋ぶん"} hs) (str "headers were " hs))
