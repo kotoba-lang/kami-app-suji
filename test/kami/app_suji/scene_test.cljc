@@ -260,10 +260,23 @@
   ;; 30 degrees, 1572 vs 1367 at 45, and 3989 vs 635 at 60. The tissue holding
   ;; the spine changes, and that changes what would unload it — "relax your back"
   ;; helps in the first regime and not in the second.
-  (let [state-at (fn [flex]
+  ;; ⚠ THE SEGMENT IT READS IS DERIVED, not typed. It was `"thorax_abdomen"`, and
+  ;; suji 3d494ba split the trunk at T12/L1 — so this test asked for a segment that
+  ;; is no longer placed, `first` returned nil, and every assertion below failed
+  ;; against `nil` rather than against a bone. The ligaments hang from whichever
+  ;; segment `joint-muscles` puts them on, so ask that map: a future re-segmenting
+  ;; moves this test with the model instead of breaking it.
+  (let [ligament-base (first (for [[base groups] scene/joint-muscles
+                                   :when (contains? groups "posterior_lumbar_ligaments")]
+                               base))
+        state-at (fn [flex]
                    (let [st (assoc-in core/initial-state [:posture :trunk-flexion-deg] flex)
                          {:keys [scene]} (core/solved st)]
-                     (first (filter #(= "thorax_abdomen" (:label %)) (:bones scene)))))]
+                     (first (filter #(= ligament-base (:label %)) (:bones scene)))))]
+    (is (some? ligament-base)
+        "no segment is coloured by the posterior lumbar ligaments, so this asserts nothing")
+    (is (some? (state-at 0.0))
+        (str "no bone is labelled " (pr-str ligament-base) " — the segment was renamed"))
     ;; the muscles carry it first
     (let [shallow (state-at 15.0)]
       (is (= :loaded (:state shallow))
@@ -478,3 +491,115 @@
       (is (pos? (:active-n (by "longus_capitis")))
           (str "the coupled optimum gives the flexors force where the closed form "
                "gave them none: " (by "longus_capitis"))))))
+
+;; --- the trunk is two segments now, and the picture has to say so ------------
+
+(deftest the-trunk-is-drawn-as-two-bones
+  ;; ⚠ THE COUNT, NOT THE APPEARANCE. This repo has twice shipped a picture that
+  ;; disagreed with the model and looked entirely plausible: six cervical bones
+  ;; drawn as one bar, and both legs drawn unloaded. Neither was visible in a
+  ;; screenshot. So this asks the model how many trunk segments it places and
+  ;; requires that many bones, rather than asking whether the picture looks split.
+  ;;
+  ;; `segment/trunk-bases` is suji's own list of what `thorax_abdomen` became, so a
+  ;; third trunk segment fails here on the day it arrives instead of being drawn
+  ;; and never noticed.
+  (let [{:keys [scene]} (for-ws posture/laptop-on-lap)
+        bones (:bones scene)
+        trunk (filterv #(contains? (set segment/trunk-bases) (:label %)) bones)]
+    (is (= (count segment/trunk-bases) (count trunk))
+        (str "suji places " (count segment/trunk-bases) " trunk segments "
+             (pr-str segment/trunk-bases) " and the scene draws "
+             (count trunk) " of them: " (pr-str (mapv :label bones))))
+    (is (= 2 (count trunk))
+        "the split is two segments; if suji changed that, the sentences on the
+         method page that say `two` are derived and will follow, but this number
+         is the one a reader of this test needs")
+    ;; each is a bone of its own, with its own mesh — not one bone with a seam
+    (is (= (count (distinct (map :geo trunk))) (count trunk))
+        (str "the two trunk segments are drawn as the same shape: "
+             (pr-str (mapv (juxt :label :geo) trunk))))
+    (is (= (count (distinct (map (comp :radius-m :mesh) trunk))) (count trunk))
+        (str "the two trunk segments are drawn at the same girth: "
+             (pr-str (mapv (juxt :label (comp :radius-m :mesh)) trunk))))
+    ;; and they are joined end to end, which is what makes them one spine
+    (let [placed (into {} (map (juxt :base identity)) (get-in scene [:pose :segments]))
+          lumbar (get placed "lumbar")
+          thorax (get placed "thorax")]
+      (is (and lumbar thorax) "the model no longer places lumbar and thorax")
+      (is (every? #(< (Math/abs (double %)) 1e-12)
+                  (map - (:distal lumbar) (:proximal thorax)))
+          (str "the lumbar's distal end " (pr-str (:distal lumbar))
+               " is not the thorax's proximal end " (pr-str (:proximal thorax))))
+      ;; the joint the split created is drawn, or the two bones read as one rod
+      (let [t12l1 (get-in scene [:pose :joints :t12l1])]
+        (is (some? t12l1) "suji no longer publishes the T12/L1 joint")
+        (is (some #(= "t12l1" (:label %)) (:joints scene))
+            (str "no landmark is drawn at T12/L1: "
+                 (pr-str (mapv :label (:joints scene)))))))))
+
+(deftest every-trunk-segment-is-keyed-in-both-scene-tables
+  ;; The two tables a segment falls through silently. `joint-muscles` with no entry
+  ;; draws it unloaded; `bone-radius-m` with no entry falls to the 0.03 default
+  ;; while `bounds` frames it at that default too, so nothing looks wrong. Both
+  ;; were keyed `thorax_abdomen` when the pin moved.
+  (doseq [base segment/trunk-bases]
+    (is (contains? scene/joint-muscles base)
+        (str base " has no entry in joint-muscles, so it is drawn unloaded"))
+    (is (contains? scene/bone-radius-m base)
+        (str base " has no drawn radius, so it falls to the default"))
+    (is (contains? scene/bone-shape-by-segment base)
+        (str base " has no shape, so it falls back to a generic long bone"))))
+
+(deftest the-thorax-is-unloaded-because-nothing-is-solved-at-t12l1
+  ;; A DELIBERATELY EMPTY ENTRY, and the distinction it holds. The thorax hangs
+  ;; from T12/L1; suji places that joint and writes no equilibrium at it, so no
+  ;; muscle acts about the joint this segment hangs from. `{:kind :none}` is the
+  ;; honest answer, and the key already explains that colour.
+  ;;
+  ;; Asserted from the SOLVE rather than from the empty set: if suji ever solves a
+  ;; muscle about T12/L1, this fails and the empty entry has to be filled, which
+  ;; is the direction the mistake would come from.
+  (let [{:keys [scene tensions]} (for-ws posture/laptop-on-lap)
+        thorax (first (filter #(= "thorax" (:label %)) (:bones scene)))]
+    (is (some? thorax))
+    (is (empty? (get scene/joint-muscles "thorax"))
+        "the thorax has muscle groups assigned; this test's premise changed")
+    (is (= :none (:state thorax)))
+    (is (= scene/unloaded-rgb (:color thorax)))
+    ;; the control: the lumbar segment below it IS loaded, so `:none` here is a
+    ;; statement about T12/L1 and not about the whole trunk being missed
+    (let [lumbar (first (filter #(= "lumbar" (:label %)) (:bones scene)))]
+      (is (= :loaded (:state lumbar))
+          (str "the lumbar segment is not loaded either, so the trunk is simply "
+               "unkeyed: " (pr-str (:state lumbar)))))
+    ;; and no tension names a joint the thorax hangs from
+    (is (not-any? #(= :t12l1 (:crosses-joint %)) tensions)
+        "a muscle is solved across T12/L1 now")))
+
+(deftest tilting-the-pelvis-turns-the-pelvis-and-the-lumbar-chord-but-not-the-thorax
+  ;; THE DEGREE OF FREEDOM, asserted where it is drawn. `pelvic-tilt-deg` rotates
+  ;; the pelvis, and the lumbar spine's lower end with it; the thorax's own tilt is
+  ;; still `trunk-flexion-deg` alone. If the picture did not move, the slider would
+  ;; be changing numbers under a body that never turns — which is how this repo's
+  ;; legs came to be drawn unloaded through a whole squat.
+  (let [rot (fn [tilt base]
+              (let [p (pose/solve-pose body (assoc (posture/posture-from-workstation
+                                                    posture/laptop-on-lap)
+                                                   :pelvic-tilt-deg tilt))]
+                (:euler-z (first (filter #(= base (:base %)) (:segments p))))))
+        d (fn [base] (- (rot 30.0 base) (rot 0.0 base)))]
+    (is (> (Math/abs (double (d "pelvis"))) 1e-6)
+        (str "the pelvis did not turn: " (d "pelvis")))
+    (is (> (Math/abs (double (d "lumbar"))) 1e-6)
+        (str "the lumbar chord did not turn: " (d "lumbar")))
+    (is (< (Math/abs (double (d "thorax"))) 1e-12)
+        (str "the thorax turned, and only the trunk-flexion slider may do that: "
+             (d "thorax")))
+    ;; the chord is the MEAN of the two ends, which is the constant-curvature
+    ;; assumption suji states — so it turns half as far as the pelvis does
+    (is (math/nearly= (Math/abs (double (d "lumbar")))
+                      (* 0.5 (Math/abs (double (d "pelvis"))))
+                      1e-9)
+        (str "the lumbar chord moved " (d "lumbar") " for a pelvis moving "
+             (d "pelvis") "; the arc's chord bisects its end tangents"))))

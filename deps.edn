@@ -16,21 +16,28 @@
         ;; the UI has to show that rather than a number.
         io.github.cloud-itonami/suji
         {:git/url "https://github.com/cloud-itonami/suji.git"
-         ;; 101987a is `recruit/solve` — Crowninshield–Brand over SEVERAL equality
-         ;; constraints at once, one dual variable per joint. It closes the gap this
-         ;; app's README called the largest one it had: a two-joint muscle used to
-         ;; be solved at one joint with its moment at the other only REPORTED.
+         ;; 3d494ba gives the model A DEGREE OF FREEDOM IT DID NOT HAVE: the
+         ;; pelvis rotates (`:pelvic-tilt-deg`, anterior positive), and the trunk
+         ;; is split at T12/L1 into `lumbar` + `thorax` so the lumbar spine has an
+         ;; orientation the thorax does not give it. Lordosis is the pelvic tilt by
+         ;; definition (the Cobb L1-S1 angle); the lumbar chord is
+         ;; `trunk-flexion + pelvic-tilt/2`, a constant-curvature arc the model
+         ;; states as an assumption rather than as a measurement.
          ;;
-         ;; ⚠ IT CHANGES A MEANING WITHOUT CHANGING A NAME, which is why the pin
-         ;; moved inside a coverage measurement rather than beside it. `:coeff` is
-         ;; now the raw signed moment arm about the muscle's own joint for a coupled
-         ;; row, so atlanto-occipital flexors and lower-limb antagonists are negative
-         ;; where they were positive; and `:refused` reaches far fewer rows, because
-         ;; a muscle that used to come back `:acts-the-wrong-way` with no %MVC now
-         ;; carries a force of zero and `:inactive? true` — computed and idle, not
-         ;; declined. Seven keys went away with the closed form and six arrived with
-         ;; the coupled one. See `kami.app-suji.coverage`.
-         :git/sha "101987af7725d88d5709405005723cebda3585c7"}
+         ;; ⚠ IT MOVES NUMBERS THAT DID NOT MOVE BEFORE. Eight muscle groups
+         ;; originate on the pelvis, so rotating it moves their origins and their
+         ;; moment arms. Relaxed standing becomes comparable against Wilke 1999 for
+         ;; the first time and OVERSHOOTS it; relaxed sitting moved 2.03 N. Every
+         ;; count in this repo's coverage census was re-measured after this pin
+         ;; moved rather than carried over — `segment/segments` grew a segment and
+         ;; the census, the scene's segment tables and the browser mesh counts all
+         ;; answer differently because of it.
+         ;;
+         ;; 101987a before it was `recruit/solve` — one Crowninshield-Brand
+         ;; optimisation over several equality constraints, one dual variable per
+         ;; joint — which is where `:coeff`, `:inactive?` and the coupled-solve
+         ;; quantities came from.
+         :git/sha "3d494ba728ea7510d4b9a981706270c41dfa86b0"}
 
         ;; デジタル庁デザインシステム — the workspace's base design system
         ;; (owner decision 2026-08-05). App CSS is written to the --hig-* token
