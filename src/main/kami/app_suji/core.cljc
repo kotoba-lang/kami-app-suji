@@ -176,18 +176,24 @@
                 band
                 (when (math/finite? max-mvc-pct)
                   (str " <" (math/fmt-fixed max-mvc-pct 0) "%"))])
-             ;; the two non-load colours belong in the key too: a reader who sees
-             ;; purple with no entry for it has to guess, and both guesses (fine /
+             ;; Every non-load colour belongs in the key: a reader who sees a
+             ;; colour with no entry for it has to guess, and both guesses (fine /
              ;; terrible) are claims the model did not make.
-             [[:span {:class "suji-note"}
-               [:span {:class "suji-swatch" :style {:background (rgb-css scene/ligament-rgb)}}]
-               "靭帯が担っている（筋は沈黙）"]
-              [:span {:class "suji-note"}
-               [:span {:class "suji-swatch" :style {:background (rgb-css scene/refused-rgb)}}]
-               "適用範囲外（計算していない）"]
-              [:span {:class "suji-note"}
-               [:span {:class "suji-swatch" :style {:background (rgb-css scene/unloaded-rgb)}}]
-               "この関節を通る筋がモデルに無い"]]))
+             ;;
+             ;; ⚠ THE ANTAGONIST COLOUR WAS MISSING, and it is not rare. It is
+             ;; used on MUSCLE lines rather than on bones, which is why it escaped
+             ;; a key written while looking at the segments: measured over 108
+             ;; postures, 1,308 muscle draws are drawn in it. A reader saw a
+             ;; distinctly dimmed muscle constantly and had nothing to read it by.
+             ;;
+             ;; `no-load-colours` is derived so the next colour added to
+             ;; `scene/muscle-draws` or `scene/bone-draws` cannot arrive without an
+             ;; entry — `every-colour-a-draw-can-take-is-in-the-key` fails if it
+             ;; does.
+             (for [[rgb label] scene/no-load-colours]
+               [:span {:class "suji-note"}
+                [:span {:class "suji-swatch" :style {:background (rgb-css rgb)}}]
+                label])))
       (let [f (:frontal loads)
             fl (math/abs* (:lumbosacral-nm f 0.0))
             fs (math/abs* (get-in f [:shoulder-per-side :left] 0.0))]
