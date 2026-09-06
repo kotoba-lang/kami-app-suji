@@ -14,6 +14,7 @@
             [kami.app-suji.core :as core]
             [suji.methods.attachment :as attachment]
             [suji.methods.math :as math]
+            [suji.methods.pose :as pose]
             [suji.methods.posture :as posture]
             [suji.methods.segment :as segment]
             [suji.methods.spine :as spine]))
@@ -531,3 +532,34 @@
         (str "the model's standing-minus-sitting difference is only "
              (:difference-ratio c) "x the reference's; the page calls this the
              finding and the wording assumes it is large"))))
+
+(deftest the-lordosis-readout-is-the-models-own-number
+  ;; The census claims the two lordosis figures are on the page BY THEIR LABELS,
+  ;; because probing them by their digits passed with the figures deleted — the
+  ;; differential found 25.0 as the `25` in a muscle row reading `25 N (24 / 1)`.
+  ;; A label check says the figure exists and says nothing about what is in it, so
+  ;; the number is asserted here, exactly, against the function that produces it.
+  (let [st (assoc-in core/initial-state [:posture :pelvic-tilt-deg] 25.0)
+        pst (:posture st)
+        items (nodes :div (core/simulate-view st))
+        readout (fn [label]
+                  (first (for [d items
+                               :let [t (flat-text d)]
+                               :when (and (str/includes? (str (:class (second d))) "suji-readout-item")
+                                          (str/includes? t label))]
+                           t)))]
+    (doseq [[label want]
+            [["腰椎前弯（Cobb L1–S1）" (pose/lumbar-lordosis-deg pst)]
+             ["腰椎の弦の傾き" (pose/lumbar-chord-tilt-deg (:trunk-flexion-deg pst)
+                                                          (:pelvic-tilt-deg pst))]]]
+      (let [t (readout label)]
+        (is (some? t) (str "no readout item is labelled " label))
+        (is (str/includes? (or t "") (math/fmt-fixed want 1))
+            (str label " should read " (math/fmt-fixed want 1)
+                 " and the item reads " (pr-str t)))))
+    ;; the control: at a different tilt the same items read differently, so the
+    ;; assertion above is reading the figure and not a constant
+    (let [flat0 (flat-text (core/simulate-view
+                            (assoc-in core/initial-state [:posture :pelvic-tilt-deg] 0.0)))
+          flat25 (flat-text (core/simulate-view st))]
+      (is (not= flat0 flat25) "the simulate view reads identically at 0 and 25 deg"))))

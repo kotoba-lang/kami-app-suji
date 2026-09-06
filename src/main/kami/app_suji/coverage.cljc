@@ -367,8 +367,24 @@
    :spine.lumbar-check/parameter-not-in-source {:state :shown :token :from-value}
 
    ;; --- the pelvis's degree of freedom at the posture on screen ---------------
-   :pose/lumbar-lordosis-deg             {:state :shown}
-   :pose/lumbar-chord-tilt-deg           {:state :shown}
+   ;; ⚠ BY LABEL, AND THE FIRST VERSION WAS BY NUMBER — which passed with the two
+   ;; figures DELETED. Measured 2026-09-09 by deleting them: the differential found
+   ;; `:pose/lumbar-lordosis-deg`'s 25.0 as the `25` in a muscle row reading
+   ;; `25 N (24 / 1)`, at the one posture where the quantity takes that value and
+   ;; nowhere else — so the difference the probe is built on was satisfied by a
+   ;; coincidence that happened to be posture-specific. The docstring on
+   ;; `differential` says a coincidence cannot move when the posture does; a
+   ;; coincidence in a table that DOES move when the posture does is the gap in
+   ;; that argument, and this is an instance of it.
+   ;;
+   ;; So these take the figure's own label, the same convention a small integer
+   ;; count takes and for the same reason: what can be probed is that the figure is
+   ;; there, and the label is the text that disappears with it. That the NUMBER is
+   ;; the model's is asserted exactly, by `the-lordosis-readout-is-the-models-own-
+   ;; number` — where it can compare the two directly instead of hunting for digits
+   ;; on a page that has three hundred of them.
+   :pose/lumbar-lordosis-deg             {:state :shown :token "腰椎前弯（Cobb L1–S1）"}
+   :pose/lumbar-chord-tilt-deg           {:state :shown :token "腰椎の弦の傾き"}
 
    ;; --- standing against sitting, comparable for the first time ---------------
    :spine.sitting-standing/model-difference-n     {:state :shown}
