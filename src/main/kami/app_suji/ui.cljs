@@ -20,7 +20,7 @@
 
 (defn- apply-preset [state preset-name]
   (if-let [w (first (filter #(= preset-name (:name %)) posture/reference-workstations))]
-    (assoc state :posture (assoc (posture/posture-from-workstation w) :preset preset-name))
+    (assoc state :posture (core/workstation-posture w))
     state))
 
 (defn- set-path [state path v]

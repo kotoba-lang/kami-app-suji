@@ -104,7 +104,42 @@
                (and (seq (str/trim (or before ""))) (not= before after))
                (str (pr-str before) " -> " (pr-str after)))))
 
-   ;; 5. it is one page: crossing a view must not load a document
+   ;; 5. the model's refusal reaches the page as a refusal
+   (fn []
+     (p/let [_ (.evaluate page
+                "(() => {
+                   const set = (id, v) => { const el = document.getElementById(id);
+                     el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); };
+                   set('posture-shoulder-flexion-deg', 90);
+                   set('posture-elbow-flexion-deg', 0);
+                 })()")
+             _ (.waitForTimeout page 400)
+             body (.evaluate page "document.body.innerText")]
+       (check! "a posture outside the model is shown as refused, not as a number"
+               (str/includes? (or body "") "適用範囲外")
+               "expected the out-of-range marker in the muscle table")
+       (check! "and the reason is given, not just a dash"
+               (str/includes? (or body "") "巻き付き面")
+               "expected the refusal to state why")))
+
+   ;; 6. an out-of-plane control actually moves the picture
+   (fn []
+     (p/let [before (.evaluate page "document.querySelector('.suji-figure').innerText")
+             _ (.evaluate page
+                "(() => { const el = document.getElementById('posture-trunk-lateral-bend-deg');
+                          el.value = 30; el.dispatchEvent(new Event('input', {bubbles: true})); })()")
+             _ (.waitForTimeout page 400)
+             uniq (.evaluate page
+                   "(() => { const c = document.getElementById('suji-canvas');
+                      const o = document.createElement('canvas'); o.width=c.width; o.height=c.height;
+                      const g = o.getContext('2d'); g.drawImage(c,0,0);
+                      const d = g.getImageData(0,0,o.width,o.height).data; const s = new Set();
+                      for (let i=0;i<d.length;i+=4*97) s.add(d[i]+','+d[i+1]+','+d[i+2]);
+                      return s.size; })()")]
+       (check! "the frontal-plane control still leaves a drawn body on screen"
+               (and (number? uniq) (> uniq 3)) (str "distinct colours: " uniq))))
+
+   ;; 7. it is one page: crossing a view must not load a document
    (fn []
      (p/let [_ (.evaluate page "window.__sujiSameDocument = 'yes'")
              _ (.click page "a[href='#/compare']")
@@ -116,7 +151,7 @@
        (check! "the comparison view rendered its own content"
                (str/includes? (or head "") "比較") head)))
 
-   ;; 6. and back, with the canvas alive again
+   ;; 8. and back, with the canvas alive again
    (fn []
      (p/let [_ (.click page "a[href='#/']")
              _ (.waitForSelector page "#suji-canvas")
@@ -142,7 +177,7 @@
       ;; pass. Cf. the workspace rule that a check which could not run has to be
       ;; distinguishable from a check that passed.
       (cond
-        (< (count @results) 7)
+        (< (count @results) 11)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

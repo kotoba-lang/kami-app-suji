@@ -13,9 +13,11 @@
   comparison is one body across setups, never one person against another."
   (:require [clojure.string :as str]
             [jp-go-dds.core :as dds]
+            [suji.methods.attachment :as attachment]
             [kami.app-suji.route :as route]
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
+            [suji.methods.muscle :as muscle]
             [suji.methods.posture :as posture]
             [suji.methods.segment :as segment]
             [suji.methods.strain :as strain]))
@@ -32,15 +34,35 @@
    {:path [:posture :trunk-flexion-deg] :label "体幹前傾" :unit "°" :min 0 :max 60 :step 1}
    {:path [:posture :shoulder-flexion-deg] :label "肩屈曲" :unit "°" :min 0 :max 90 :step 1}
    {:path [:posture :elbow-flexion-deg] :label "肘屈曲" :unit "°" :min 0 :max 140 :step 1}
+   {:path [:posture :shoulder-abduction-deg] :label "肩外転（前額面）" :unit "°" :min 0 :max 90 :step 1}
+   {:path [:posture :trunk-lateral-bend-deg] :label "体幹側屈（前額面）" :unit "°" :min -40 :max 40 :step 1}
+   {:path [:posture :head-rotation-deg] :label "頭部回旋" :unit "°" :min -70 :max 70 :step 1}
    {:path [:session-minutes] :label "連続作業時間" :unit "分" :min 10 :max 480 :step 10}])
+
+(def out-of-plane-defaults
+  "`posture/posture-from-workstation` describes a sagittal setup and emits no
+  frontal-plane or rotation angles; `pose` treats them as optional and defaults
+  them to zero. The app has sliders for them, and a slider needs a value — so the
+  defaults are made explicit HERE rather than left to `get-in` returning nil,
+  which is how a missing control becomes a NullPointerException at render time
+  instead of a zero."
+  {:shoulder-abduction-deg 0.0
+   :trunk-lateral-bend-deg 0.0
+   :head-rotation-deg 0.0})
+
+(defn workstation-posture
+  "A reference workstation's posture, with every control this app exposes present."
+  [w]
+  (merge out-of-plane-defaults
+         (posture/posture-from-workstation w)
+         {:preset (:name w)}))
 
 (def initial-state
   (merge {:view :simulate
           :body {:total-mass-kg 70.0 :stature-m 1.70}
           :session-minutes 120.0
           :backend nil}
-         {:posture (assoc (posture/posture-from-workstation posture/laptop-on-lap)
-                          :preset "laptop-on-lap")}))
+         {:posture (workstation-posture posture/laptop-on-lap)}))
 
 (defn body-of [state]
   (segment/build-body (get-in state [:body :total-mass-kg])
@@ -61,6 +83,18 @@
 
 ;; --- small view helpers ------------------------------------------------------
 
+(defn coeff-label
+  "A task coefficient with its unit. `recruit` returns a moment arm in metres for a
+  moment equilibrium and a DIMENSIONLESS direction cosine for a suspended force —
+  printing both as millimetres would put a cosine of 0.41 on the page as 410 mm."
+  [t]
+  (let [c (:coeff t)
+        suspension? (= :scapular-suspension (:task (get attachment/muscles (:name t))))]
+    (cond
+      (nil? c) "—"
+      suspension? (str (math/fmt-fixed c 2) " (cos)")
+      :else (str (math/fmt-fixed (* 1000.0 c) 1) " mm"))))
+
 (defn- rgb-css
   "A GPU colour rendered for a swatch. This is the one place a scene colour
   reaches CSS, and it is generated from the scene's own numbers rather than
@@ -73,19 +107,6 @@
   [:div {:class "suji-readout-item"}
    [:div {:class "suji-figure"} value [:span {:class "suji-unit"} " " unit]]
    [:div {:class "suji-unit"} label]])
-
-(defn muscle-row [t st]
-  (let [pct (:mvc-pct t)
-        band (:band (scene/band-for pct))]
-    [:tr
-     [:td (str/replace (:name t) "_" " ")]
-     [:td (math/fmt-fixed (:force-n t) 0) " N"]
-     [:td (math/fmt-fixed pct 1) " %MVC"
-      [:div {:class "suji-bar"}
-       [:i {:style {:width (str (min 100.0 pct) "%")
-                    :background (rgb-css (scene/ramp-rgb pct))}}]]]
-     [:td band]
-     [:td (strain/stiffness-band (:stiffness-index st))]]))
 
 ;; --- views -------------------------------------------------------------------
 
@@ -101,12 +122,28 @@
        "色は各分節がぶら下がる関節の %MVC（最大随意収縮に対する割合）。"
        "力学量であって所見ではない。"]
       (into [:div {:class "dds-ext-row"}]
-            (for [{:keys [band rgb max-mvc-pct]} (:legend scene)]
+            (concat
+             (for [{:keys [band rgb max-mvc-pct]} (:legend scene)]
+               [:span {:class "suji-note"}
+                [:span {:class "suji-swatch" :style {:background (rgb-css rgb)}}]
+                band
+                (when (math/finite? max-mvc-pct)
+                  (str " <" (math/fmt-fixed max-mvc-pct 0) "%"))])
+             ;; the two non-load colours belong in the key too: a reader who sees
+             ;; purple with no entry for it has to guess, and both guesses (fine /
+             ;; terrible) are claims the model did not make.
+             [[:span {:class "suji-note"}
+               [:span {:class "suji-swatch" :style {:background (rgb-css scene/refused-rgb)}}]
+               "適用範囲外（計算していない）"]
               [:span {:class "suji-note"}
-               [:span {:class "suji-swatch" :style {:background (rgb-css rgb)}}]
-               band
-               (when (math/finite? max-mvc-pct)
-                 (str " <" (math/fmt-fixed max-mvc-pct 0) "%"))]))]
+               [:span {:class "suji-swatch" :style {:background (rgb-css scene/unloaded-rgb)}}]
+               "この関節を通る筋がモデルに無い"]]))
+      (when (> (get-in scene [:camera :out-of-plane-m] 0.0) 0.005)
+        [:p {:class "suji-note"}
+         "⚠ 前額面の角度は姿勢（幾何）を動かすが、"
+         [:strong "モーメントの釣り合いはまだ矢状面のみ"]
+         "である —— 外転・側屈が生む前額面の荷重成分はこのモデルが計算していない。"
+         "表示中の数値は矢状面成分だけの答えである。"])]
      [:div {:class "suji-readout"}
       (dds/card
        (dds/heading 3 "頸椎にかかる圧縮荷重")
@@ -123,13 +160,31 @@
       (dds/card
        (dds/heading 3 "筋の緊張と強張り")
        (dds/table
-        {:headers ["筋" "張力" "%MVC" "帯" (str (int (:session-minutes state)) "分後")]
-         :rows (mapv (fn [t st] [(str/replace (:name t) "_" " ")
-                                 (str (math/fmt-fixed (:force-n t) 0) " N")
-                                 (str (math/fmt-fixed (:mvc-pct t) 1) " %")
-                                 (:band (scene/band-for (:mvc-pct t)))
-                                 (strain/stiffness-band (:stiffness-index st))])
-                     tensions strains)}))]]))
+        {:headers ["筋" "モーメントアーム" "張力" "%MVC" "帯"
+                   (str (int (:session-minutes state)) "分後")]
+         :rows (mapv (fn [t st]
+                       (if (:refused t)
+                         ;; A refusal is shown AS a refusal. Rendering a dash in
+                         ;; the %MVC column and nothing else would let a reader
+                         ;; take it for a small number; the reason is the answer.
+                         [(str/replace (:name t) "_" " ")
+                          (coeff-label t) "—" "適用範囲外" "—" "—"]
+                         [(str/replace (:name t) "_" " ")
+                          (coeff-label t)
+                          (str (math/fmt-fixed (:force-n t) 0) " N")
+                          (str (math/fmt-fixed (:mvc-pct t) 1) " %")
+                          (:band (scene/band-for (:mvc-pct t)))
+                          (str (strain/stiffness-band (:stiffness-index st))
+                               (when (:saturated? st) "（飽和）"))]))
+                     tensions strains)})
+       (when-let [r (seq (filter :refused tensions))]
+         [:p {:class "suji-note"}
+          "この姿勢では " (str/join "・" (map #(str/replace (:name %) "_" " ") r))
+          " の力を計算していない。直線モデルには腱の巻き付き面が無く、"
+          "作用線が関節を通る近傍では必要張力が発散するため、モデルが答えを拒否している。"])
+       (when-not (:complete? (muscle/tension-summary tensions))
+         [:p {:class "suji-note"}
+          "この結果は不完全である —— 荷重の一部はどの筋にも割り当てられていない。"]))]]))
 
 (defn compare-view [state]
   (let [body (body-of state)]
@@ -152,7 +207,10 @@
                          (str (math/fmt-fixed (:compressive-load-kgf cerv) 1) " kgf")
                          (str (math/fmt-fixed (:multiplier-vs-head cerv) 1) "×")
                          (str (math/fmt-fixed (:moment-nm ls) 1) " N·m")
-                         (str (math/fmt-fixed (apply max (map :mvc-pct tensions)) 1) " %")]))
+                         (if-let [mx (:max-mvc-pct (muscle/tension-summary tensions))]
+                           (str (math/fmt-fixed mx 1) " %"
+                                (when-not (:complete? (muscle/tension-summary tensions)) " ⚠"))
+                           "適用範囲外")]))
                     posture/reference-workstations)}))]))
 
 (defn method-view [_state]
@@ -168,8 +226,14 @@
           "（0°→1 倍 … 60°→5 倍、10% 以内）。"]
      [:li [:strong "力学的だが例示的"] "：筋の %MVC と Rohmert の強張り指数。"
           "PCSA とモーメントアームは代表値であって個人の測定値ではない（G7）。"]
-     [:li [:strong "未実装"] "：矢状面 2 次元の連鎖であり、前額面・回旋・冗長筋の"
-          "静的最適化・角度依存モーメントアームは持たない。"]]
+     [:li [:strong "導出値"] "：モーメントアームは筋の起始・停止から幾何で計算する"
+          "（定数表ではない）。中立姿勢では従来の定数を 0.2% 以内で再現し、"
+          "そこから外れた分だけが幾何由来である。"]
+     [:li [:strong "拒否する"] "：直線モデルには巻き付き面が無いので、作用線が関節を"
+          "通る近傍では必要張力が発散する。そこではモデルが数値を返さない。"]
+     [:li [:strong "未実装"] "：解剖学的メッシュ、腱の巻き付き面、椎間板の個別モデル。"
+          "前額面（外転・側屈）と頭部回旋は入力できるが、"
+          "それらに対する筋の追加（斜角筋・広背筋など）はまだ無い。"]]
     (dds/heading 3 "境界")
     [:p "力学量だけを返す。診断・処方・治療は表現できない（医師法 §17 / G1）。"
         "計測ハードウェアを持たず、入力は姿勢のパラメータである（薬機法 / G2）。"]

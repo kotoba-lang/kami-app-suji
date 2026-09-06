@@ -9,11 +9,14 @@
 {:paths ["src/main" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
 
-        ;; the physics. Portable .cljc since 2026-09-06 (it was JVM-only before that,
-        ;; which is why this app could not have existed).
+        ;; the physics. Portable .cljc since 2026-09-06 (it was JVM-only before
+        ;; that, which is why this app could not have existed). Moment arms are
+        ;; derived from the anatomy rather than tabulated, and a muscle whose
+        ;; leverage this model cannot resolve comes back REFUSED with no %MVC —
+        ;; the UI has to show that rather than a number.
         io.github.cloud-itonami/suji
         {:git/url "https://github.com/cloud-itonami/suji.git"
-         :git/sha "5a3da89a79b7f6ed8c784bf5e409ec9ab5ac68d8"}
+         :git/sha "181473fb01c778aedde7e08809b48e3ac8b698c1"}
 
         ;; デジタル庁デザインシステム — the workspace's base design system
         ;; (owner decision 2026-08-05). App CSS is written to the --hig-* token

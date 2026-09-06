@@ -48,6 +48,12 @@
   "The base segment — a segment no solved muscle acts about (the pelvis)."
   [0.55 0.57 0.62])
 
+(def refused-rgb
+  "A segment whose load the model declined to compute. Deliberately unlike both
+  ends of the load ramp: it must not read as 'fine' or as 'bad', because it is
+  neither — it is 'not answered'."
+  [0.42 0.35 0.62])
+
 (defn band-for
   "The load band a %MVC falls in."
   [mvc-pct]
@@ -71,14 +77,30 @@
             0.0)]
     (mapv #(lerp %1 %2 (* 0.65 t)) (:rgb this) (:rgb nxt))))
 
-(defn segment-mvc
-  "Highest %MVC among the muscles acting about the joint this segment hangs from.
-  Returns nil for a segment no solved muscle crosses — nil is not zero, and the
-  renderer must be able to tell 'no muscle in this model' from 'no load'."
+(defn segment-state
+  "What this segment's colour is allowed to claim.
+
+  Three outcomes, and they are NOT interchangeable:
+    {:kind :loaded  :mvc-pct n}  — a muscle acts here and the model solved it
+    {:kind :none}                — no solved muscle acts about this joint (the pelvis)
+    {:kind :refused :names [..]} — a muscle acts here and the model DECLINED to
+                                   compute its force at this posture
+
+  The third is the one that matters. `suji` refuses when a muscle's line of action
+  passes too close to the joint it acts about — a straight-line model has no
+  wrapping surface, so the force there diverges. Colouring a refused segment green
+  would say the posture is easy; colouring it red would say it is hard; both are
+  claims the model explicitly declined to make."
   [tensions segment-name]
   (let [names (get joint-muscles segment-name #{})
-        vals (keep (fn [t] (when (contains? names (:name t)) (:mvc-pct t))) tensions)]
-    (when (seq vals) (apply max vals))))
+        mine (filter #(contains? names (:name %)) tensions)
+        refused (filter :refused mine)
+        vals (keep :mvc-pct mine)]
+    (cond
+      (empty? mine) {:kind :none}
+      (seq refused) {:kind :refused :names (mapv :name refused)}
+      (seq vals) {:kind :loaded :mvc-pct (apply max vals)}
+      :else {:kind :none})))
 
 ;; --- geometry placement ------------------------------------------------------
 ;; `kami.webgpu.geometry/cylinder` is built along +Y and centred, so a bone is that
@@ -98,13 +120,18 @@
   [pose-data tensions]
   (mapv (fn [{:keys [name proximal distal length-m euler-z] :as placed}]
           (let [mid (math/vmid proximal distal)
-                mvc (segment-mvc tensions name)]
+                {:keys [kind mvc-pct] :as st} (segment-state tensions name)]
             {:label name
              :geo :cylinder
              :radius-m (get bone-radius-m name 0.03)
-             :mvc-pct mvc
-             :band (when mvc (:band (band-for mvc)))
-             :color (if mvc (ramp-rgb mvc) unloaded-rgb)
+             :state kind
+             :refused-names (:names st)
+             :mvc-pct mvc-pct
+             :band (when mvc-pct (:band (band-for mvc-pct)))
+             :color (case kind
+                      :loaded (ramp-rgb mvc-pct)
+                      :refused refused-rgb
+                      unloaded-rgb)
              :transform {:translation mid
                          :rotation [0.0 0.0 euler-z]
                          :scale [1.0 length-m 1.0]}
@@ -141,14 +168,28 @@
   in the code."
   (/ math/pi 3.0))
 
-(defn camera
-  "Sagittal view, framed on the chain's own bounds.
+(defn out-of-plane-extent
+  "How far the chain reaches out of the sagittal plane (metres). Zero for a purely
+  sagittal posture, which is the default."
+  [pose-data]
+  (apply max 0.0 (map (fn [{:keys [proximal distal]}]
+                        (max (Math/abs (nth proximal 2)) (Math/abs (nth distal 2))))
+                      (:segments pose-data))))
 
-  The eye sits out along +Z (the person's left) because every angle in this model
-  is a rotation in the XY plane, so a sagittal camera is the one that shows all of
-  them. The distance is derived from the bounds and the executor's field of view
-  rather than picked, so the figure stays framed when the sliders make the body
-  taller, shorter, or reach further forward."
+(defn camera
+  "Framed on the chain's own bounds, and swung around it only when there is
+  something out of plane to see.
+
+  A sagittal camera shows every angle of a sagittal posture, which is why it is
+  the default. But once abduction or lateral bend takes the chain out of the XY
+  plane, a straight-on sagittal view foreshortens exactly the part that moved —
+  the picture stops showing the input. The azimuth is derived from how far the
+  body actually reaches out of plane rather than being a control, so a purely
+  sagittal posture is never rotated away from the view that suits it.
+
+  The distance comes from the bounds and the executor's own field of view, so the
+  figure stays framed when the sliders make the body taller, shorter, or reach
+  further forward."
   ([pose-data] (camera pose-data (/ 4.0 3.0)))
   ([pose-data aspect]
    (let [{:keys [min-x max-x min-y max-y]} (bounds pose-data)
@@ -156,11 +197,18 @@
          cy (/ (+ min-y max-y) 2.0)
          h (max 0.2 (- max-y min-y))
          w (max 0.2 (- max-x min-x))
-         ;; fit the taller of (height) and (width / aspect), then leave a margin
-         extent (max h (/ w (max 0.1 aspect)))
-         dist (* 1.22 (/ (* 0.5 extent) (Math/tan (* 0.5 fov-rad))))]
-     {:eye [cx cy (max 0.6 dist)]
-      :target [cx cy 0.0]})))
+         oop (out-of-plane-extent pose-data)
+         ;; the out-of-plane reach has to be framed too, or abduction walks the
+         ;; hand off the side of the picture
+         extent (max h (/ (max w (* 2.0 oop)) (max 0.1 aspect)))
+         dist (* 1.28 (/ (* 0.5 extent) (Math/tan (* 0.5 fov-rad))))
+         dist (max 0.6 dist)
+         ;; up to 40° of swing, reached by ~25 cm of out-of-plane reach
+         az (* (/ math/pi 180.0) 40.0 (math/clamp (/ oop 0.25) 0.0 1.0))]
+     {:eye [(+ cx (* dist (Math/sin az))) cy (* dist (Math/cos az))]
+      :target [cx cy 0.0]
+      :azimuth-deg (math/degrees az)
+      :out-of-plane-m oop})))
 
 (defn scene
   "The whole frame: body + posture + solved loads → draws + camera + legend.
