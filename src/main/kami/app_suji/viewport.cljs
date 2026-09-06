@@ -16,7 +16,17 @@
             [kami.webgpu.geometry :as geom]
             [kami.webgpu.mesh :as mesh]))
 
-(defonce state (atom {:viewport nil :backend nil :pool {} :bones {}}))
+;; The bound GPU context, and WHICH CANVAS ELEMENT it is bound to.
+;;
+;; `:canvas` is not decoration. React destroys and recreates the canvas when the
+;; reader leaves the simulator view and comes back, and a viewport bound to the old
+;; element draws nowhere — with no error, because every object involved is still
+;; alive. `ui/ensure-canvas!` compares this by identity; a size comparison cannot
+;; see it, since the new element is laid out at exactly the old one's size.
+;;
+;; (A comment and not a docstring: `defonce` in ClojureScript takes no docstring,
+;; and shadow-cljs reports the extra argument as an arity error on this form.)
+(defonce state (atom {:viewport nil :canvas nil :backend nil :pool {} :bones {}}))
 
 (def ^:private unit-cylinder
   "Radius 1, height 1, along +Y and centred. Still the right shape for a line of
@@ -166,12 +176,29 @@
   above). It is deliberately not derived from the slot index, which would be
   distinct no matter how the cache was keyed."
   [ctx {:keys [bones joints muscles discs]} draws]
-  (let [drawn (map-indexed (fn [i {:keys [label geo mesh]}]
+  (let [drawn (map-indexed (fn [i {:keys [label geo mesh transform]}]
                              (let [h (bone-buffers! ctx i mesh)
                                    {:keys [vertices indices]} (handle-counts h)]
                                {:label label :shape (name geo)
                                 :vertices vertices :indices indices
                                 :meshLengthM (:length-m mesh) :meshRadiusM (:radius-m mesh)
+                                ;; WHERE THE BONE WAS PUT, not only what mesh it
+                                ;; is. A posture control that changes the readout
+                                ;; and not the draw list would mean the picture and
+                                ;; the numbers are answering different states, and
+                                ;; nothing else published here can see that: the
+                                ;; mesh only changes with stature.
+                                ;;
+                                ;; Read pixels instead? Not reliably here.
+                                ;; Measured 2026-09-09 under headless SwiftShader,
+                                ;; a canvas screenshot is byte-identical across
+                                ;; postures and refreshes only when the canvas is
+                                ;; RESIZED — so a pixel diff reports `the picture
+                                ;; did not move` for a viewport that is drawing
+                                ;; correctly. This is the draw list the encoder was
+                                ;; actually given, which is the last thing this app
+                                ;; owns before the GPU.
+                                :transform transform
                                 :buffer (::upload h)}))
                            bones)]
     (set! (.-__sujiGeometry js/window)
@@ -183,6 +210,13 @@
                     ;; 48 muscles were not drawn.
                     :sceneCounts {:bones (count bones) :joints (count joints)
                                   :muscles (count muscles) :discs (count discs)}
+                    ;; the LANDMARK NAMES, added when the trunk split at T12/L1.
+                    ;; A count cannot answer `is the joint the split created
+                    ;; drawn` — the two trunk bones meet there, and two rods
+                    ;; joined end to end with no landmark between them read as one
+                    ;; rod, which is exactly how six cervical bones came to be
+                    ;; drawn as a single bar on 2026-09-06.
+                    :jointLabels (mapv :label joints)
                     :drawCount (count draws)
                     :distinctBuffers (count (distinct (map :buffer drawn)))
                     ;; the shape that was there before, for the check that says
@@ -219,7 +253,8 @@
                  ;; the buffer pools are allocated on demand by `pooled!` and
                  ;; `bone-buffers!`, so there is nothing to upload up front. They
                  ;; are reset here because they belong to the old GPU context.
-                 (reset! state {:viewport viewport :backend backend :pool {} :bones {}})
+                 (reset! state {:viewport viewport :canvas canvas :backend backend
+                                :pool {} :bones {}})
                  (on-ready backend))))
       (.catch (fn [e]
                 ;; Neither backend available. Say so; do not fall back to a 2-D

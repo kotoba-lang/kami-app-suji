@@ -77,8 +77,30 @@
    "head"           #{"rectus_capitis_posterior_major" "rectus_capitis_posterior_minor"
                       "obliquus_capitis_superior"
                       "longus_capitis" "rectus_capitis_anterior"}
-   "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"
+   ;; --- the trunk, two segments since suji 3d494ba -----------------------------
+   ;; `thorax_abdomen` ran L5/S1 to C7 as one rigid body and is gone; the trunk is
+   ;; split at T12/L1 into `lumbar` (L5/S1 -> T12/L1) and `thorax` (T12/L1 -> C7),
+   ;; so that the lumbar spine can have an orientation the thorax does not give it
+   ;; and the pelvis can rotate under it.
+   ;;
+   ;; ITS ENTRY WENT STALE HERE THE SAME WAY `head_neck` DID, and the guard test
+   ;; written after that one is what said so: this map was still keyed
+   ;; `thorax_abdomen`, the name stopped being placed, and BOTH new segments fell
+   ;; to `{:kind :none}` — the whole trunk drawn unloaded, no error, in a body
+   ;; whose largest muscle forces are at the lumbosacral joint.
+   ;;
+   ;; The four groups act about L5/S1, which is the joint the LUMBAR segment hangs
+   ;; from, so they belong to it and not to the thorax.
+   "lumbar"         #{"erector_spinae" "quadratus_lumborum" "obliques"
                       "posterior_lumbar_ligaments"}
+   ;; T12/L1 EXISTS AND NOTHING IS SOLVED THERE. suji places the joint (`:t12l1`)
+   ;; and gives the thorax its own frame, but no equilibrium is written at it, so
+   ;; no muscle acts about the joint this segment hangs from. An empty set is the
+   ;; honest reading of that — the same shape `upper_cervical` carries for the same
+   ;; reason — and it paints the thorax with `unloaded-rgb`, which the key already
+   ;; explains as `no muscle in the model crosses this joint`. A group put here to
+   ;; avoid a grey segment would be a claim the model has not made.
+   "thorax"         #{}
    ;; THE WHOLE LOWER LIMB WAS MISSING FROM THIS MAP, and had been since suji grew
    ;; one. Both legs were drawn unloaded in every posture — including a deep squat
    ;; — because a segment with no entry here gets `{:kind :none}` and the base
@@ -341,7 +363,12 @@
   "Drawn thickness per segment (metres). Visual only — the physics is a line-mass
   model and carries no cross-section, so this is honestly decoration and is stated
   here rather than hidden in a shader."
-  {"pelvis" 0.055 "thorax_abdomen" 0.062
+  ;; The two trunk segments are drawn at different girths — the lumbar vertebral
+  ;; bodies are the largest in the column — so that the split is legible as two
+  ;; bones rather than as one bone with a seam. Both numbers are decoration, like
+  ;; every other entry here; `the-trunk-is-drawn-as-two-bones` asserts the split
+  ;; from the segment count and the joint, not from these.
+  {"pelvis" 0.055 "lumbar" 0.068 "thorax" 0.060
    ;; the neck is narrower than the trunk and the skull is wider than both
    "lower_cervical" 0.036 "upper_cervical" 0.040 "head" 0.072
    "upper_arm" 0.032 "forearm" 0.026 "hand" 0.020
@@ -381,6 +408,17 @@
    :vertebral-column {:generator :vertebral-body
                       :params {:sectors 20 :endplate-flare 1.22 :waist 0.78
                                :posterior-flatten 0.6}}
+   ;; The lumbar column, its own shape since the trunk split at T12/L1. Broader
+   ;; endplates and less waisting than the thoracic column above it, which is what
+   ;; a lumbar vertebral body looks like; like every other row here these are
+   ;; drawing proportions and not measurements of anybody (G7). It is a SEPARATE
+   ;; entry rather than a reuse of `:vertebral-column` so that the two trunk
+   ;; segments are distinguishable in the picture and in the mesh counts the
+   ;; browser check reads back off the GPU — one shape for both would make the
+   ;; split invisible in exactly the place it has to be visible.
+   :lumbar-column  {:generator :vertebral-body
+                    :params {:sectors 20 :endplate-flare 1.30 :waist 0.84
+                             :posterior-flatten 0.68}}
    :pelvic-block   {:generator :vertebral-body
                     :params {:sectors 20 :endplate-flare 1.45 :waist 0.72
                              :posterior-flatten 0.78}}
@@ -417,7 +455,12 @@
   vertebral column they are: this model's trunk IS its spine, and the discs it
   reports are the joints between these."
   {"pelvis" :pelvic-block
-   "thorax_abdomen" :vertebral-column
+   ;; `thorax_abdomen` was one rigid body from L5/S1 to C7 and is gone as of suji
+   ;; 3d494ba, which split it at T12/L1. As with `head_neck`, its entry is NOT kept
+   ;; as an alias: an alias for a segment the physics no longer places would draw
+   ;; nothing and say nothing.
+   "lumbar" :lumbar-column
+   "thorax" :vertebral-column
    ;; `head_neck` was one rigid body from C7 to the vertex and is gone as of
    ;; suji 1c7ad97, which split it into three so the suboccipitals could have a
    ;; joint to cross. Its entry is NOT kept as an alias: an alias for a segment
@@ -571,9 +614,16 @@
 
 (defn joint-draws
   "A small sphere at each anatomical landmark, so the chain reads as articulated
-  rather than as a stack of separate rods."
+  rather than as a stack of separate rods.
+
+  ⚠ THE LABEL IS THE WHOLE KEYWORD, not its name. `(name :hip/left)` is `left`,
+  so eight of the twenty-two landmarks in a bilateral body came out labelled
+  `left` and eight `right` — the joint, which is half the identity, was thrown
+  away. `core/joint-name` exists for exactly this reason one layer up; the same
+  reasoning had not reached here, and it stopped mattering only because nothing
+  read these labels until the browser check for the T12/L1 landmark did."
   [pose-data]
-  (mapv (fn [[k p]] {:label (name k)
+  (mapv (fn [[k p]] {:label (if (keyword? k) (subs (str k) 1) (str k))
                      :geo :sphere
                      :color [0.30 0.32 0.36]
                      :transform {:translation p :scale [1.0 1.0 1.0]}})

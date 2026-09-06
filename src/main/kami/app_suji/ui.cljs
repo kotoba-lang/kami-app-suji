@@ -63,10 +63,30 @@
   leaves the simulator view and returns.
 
   `binding-canvas?` guards against starting a second init while the first
-  promise is still in flight — after-render fires again before it resolves."
+  promise is still in flight — after-render fires again before it resolves.
+
+  ⚠ IT DID NOT ACTUALLY HANDLE THE CANVAS COMING BACK, and the paragraph above
+  said it did. The test was `(nil? (:viewport @viewport/state))`, which is false
+  after the first init forever — so crossing to `#/spine` and returning left the
+  GL context bound to the DESTROYED canvas element while a brand-new one rendered
+  nothing.
+
+  Measured 2026-09-09 in headless Chromium: after one round trip the new canvas'
+  backing store was 300x150 — the HTML default — inside a CSS box of 708x531, and
+  the picture was a single colour. `mesh/sync-canvas-size!` could not save it
+  either: it returns early when the canvas' CSS box already matches the viewport
+  map's `:width`/`:height`, which it does, because the new element is laid out at
+  exactly the size the old one was. So nothing resized it and nothing drew on it.
+  Nothing raised, nothing logged; the numbers went on updating beside a dead
+  picture, which is this repo's oldest failure mode.
+
+  The bound element is remembered and compared by IDENTITY. Comparing sizes would
+  reproduce the bug — the new canvas is the same size as the old one, which is the
+  whole reason the size test failed."
   []
   (when-let [canvas (.getElementById js/document "suji-canvas")]
-    (when (and (nil? (:viewport @viewport/state)) (not @binding-canvas?))
+    (when (and (not (identical? canvas (:canvas @viewport/state)))
+               (not @binding-canvas?))
       (reset! binding-canvas? true)
       (viewport/init! canvas
                       (fn [backend]

@@ -119,6 +119,30 @@
                 (and (some #(< 1 (count (:coupled-joints %))) ts)
                      (some :coupled-converged? ts)))
               "a solve that satisfies more than one equilibrium at once"]
+             ;; the eighth, added 2026-09-09 with the trunk split. The README says
+             ;; no equilibrium is solved at T12/L1, which is why the thorax is
+             ;; drawn in the `no muscle in the model crosses this joint` colour.
+             ;; Probed by the JOINT-MOMENT TABLE the page prints, the same source
+             ;; `core/t12l1-solved?` reads, so the README and the page cannot
+             ;; disagree about it.
+             ["T12/L1 で解かれる方程式"
+              (core/t12l1-solved? (:loads (core/solved core/initial-state)))
+              "an equilibrium solved at T12/L1"]
+             ;; the ninth. The README says every preset is solved at zero lordosis
+             ;; because suji's reference postures state no pelvic tilt. The day one
+             ;; of them does, that sentence is false — and the page's own derived
+             ;; note will already have started saying something else, which is the
+             ;; asymmetry this test exists to close: the page can compute, a static
+             ;; file cannot.
+             ;;
+             ;; ⚠ THE PHRASE HAS TO BE ON THE `- ` LINE. `gaps` keeps only lines
+             ;; that start a bullet and drops every continuation line, so a phrase
+             ;; wrapped onto the second line of a bullet is never searched and the
+             ;; probe is silently vacuous. Mine was, until I put it back on the
+             ;; first line.
+             ["すべて前弯 0°"
+              (not (:every-preset-straight? (core/preset-lordosis)))
+              "a preset that carries a lordosis"]
              ["2 関節筋の他関節モーメントは計算して報告するだけ"
               (let [ts (:tensions (core/solved core/initial-state))]
                 (some #(and (:crosses-joint %) (:secondary-fed? %)) ts))

@@ -18,6 +18,7 @@
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
+            [suji.methods.pose :as pose]
             [suji.methods.posture :as posture]
             [suji.methods.spine :as spine]
             [suji.methods.segment :as segment]
@@ -34,6 +35,14 @@
    {:path [:body :stature-m] :label "身長" :unit "m" :min 1.35 :max 2.05 :step 0.01}
    {:path [:posture :head-flexion-deg] :label "頭部前屈" :unit "°" :min 0 :max 60 :step 1}
    {:path [:posture :trunk-flexion-deg] :label "体幹前傾" :unit "°" :min 0 :max 60 :step 1}
+   ;; THE PELVIS ROTATES, and until suji 3d494ba it could not. Anterior positive.
+   ;; The range is not a taste: it spans the postures `posture/lumbar-lordosis` has
+   ;; measurements for, which run from cross-legged (-7.4 deg of lordosis, so -8.0
+   ;; of tilt from this model's straight neutral) to standing (+46.5), plus a
+   ;; little either side. `the-pelvic-tilt-slider-reaches-every-measured-posture`
+   ;; asserts that from the table rather than from this comment, so an entry added
+   ;; to Cho's table outside this span fails instead of being quietly unreachable.
+   {:path [:posture :pelvic-tilt-deg] :label "骨盤前傾（前弯）" :unit "°" :min -10 :max 50 :step 1}
    {:path [:posture :shoulder-flexion-deg] :label "肩屈曲" :unit "°" :min 0 :max 90 :step 1}
    {:path [:posture :elbow-flexion-deg] :label "肘屈曲" :unit "°" :min 0 :max 140 :step 1}
    {:path [:posture :wrist-extension-deg] :label "手首伸展" :unit "°" :min 0 :max 45 :step 1}
@@ -45,21 +54,30 @@
    {:path [:posture :ankle-dorsiflexion-deg] :label "足関節背屈" :unit "°" :min -20 :max 30 :step 1}
    {:path [:session-minutes] :label "連続作業時間" :unit "分" :min 10 :max 480 :step 10}])
 
-(def out-of-plane-defaults
-  "`posture/posture-from-workstation` describes a sagittal setup and emits no
-  frontal-plane or rotation angles; `pose` treats them as optional and defaults
-  them to zero. The app has sliders for them, and a slider needs a value — so the
-  defaults are made explicit HERE rather than left to `get-in` returning nil,
-  which is how a missing control becomes a NullPointerException at render time
-  instead of a zero."
+(def optional-angle-defaults
+  "Every angle this app has a slider for that a reference posture may not state.
+
+  `pose` treats them all as optional and defaults them to zero; the app has
+  sliders for them, and a slider needs a value — so the defaults are made explicit
+  HERE rather than left to `get-in` returning nil, which is how a missing control
+  becomes a NullPointerException at render time instead of a zero.
+
+  ⚠ IT WAS CALLED `out-of-plane-defaults`, AND `:pelvic-tilt-deg` IS NOT OUT OF
+  PLANE. It is sagittal, and it is missing from the reference postures for a
+  different reason: the frontal-plane angles are absent because
+  `posture-from-workstation` describes a sagittal setup, and the pelvic tilt is
+  absent because suji's reference postures have not been given one yet. Both need
+  a default here; only the first is a modelling boundary, and `preset-lordosis`
+  is where the second is stated rather than papered over."
   {:shoulder-abduction-deg 0.0
    :trunk-lateral-bend-deg 0.0
-   :head-rotation-deg 0.0})
+   :head-rotation-deg 0.0
+   :pelvic-tilt-deg 0.0})
 
 (defn workstation-posture
   "A reference workstation's posture, with every control this app exposes present."
   [w]
-  (merge out-of-plane-defaults
+  (merge optional-angle-defaults
          (posture/posture-from-workstation w)
          {:preset (:name w)}))
 
@@ -83,13 +101,115 @@
      {:name (:name w) :group :seated :posture (workstation-posture w)})
    (for [p posture/reference-standing-postures]
      {:name (:name p) :group :standing
-      :posture (merge out-of-plane-defaults p {:preset (:name p)})})))
+      :posture (merge optional-angle-defaults p {:preset (:name p)})})))
 
 (defn preset-posture
   "The posture for a preset name, or nil. Pure, so the button table and the click
   handler cannot disagree about what a preset means."
   [preset-name]
   (some #(when (= preset-name (:name %)) (:posture %)) presets))
+
+(defn pelvic-tilt-range
+  "The span of the pelvic-tilt slider, read off `controls` rather than restated.
+
+  The claim below about which measured postures this page can reach is only true
+  of the slider that is actually rendered, so it is derived from the same table
+  the panel is generated from."
+  []
+  (let [c (first (filter #(= [:posture :pelvic-tilt-deg] (:path %)) controls))]
+    [(double (:min c)) (double (:max c))]))
+
+(defn measured-lordosis
+  "Every lumbar lordosis `suji` has a measurement for, with what this page can do
+  about it.
+
+  DERIVED ON BOTH SIDES, which is the whole reason it is a function. The
+  measurements are `posture/lumbar-lordosis` — Cho et al. 2015, suji's table and
+  not a copy of it — and `:preset-carries` / `:slider-reaches` are computed from
+  this app's own presets and its own slider bounds. The day suji gives a reference
+  posture a lordosis, or the day somebody narrows the slider, this answers
+  differently without a sentence being edited."
+  ([] (measured-lordosis presets (pelvic-tilt-range)))
+  ([ps [lo hi]]
+   (let [carried (into (sorted-set)
+                       (map #(pose/lumbar-lordosis-deg (:posture %))) ps)]
+     (vec (for [[k v] (sort-by #(- (:deg (val %)))
+                               (filter #(and (map? (val %)) (number? (:deg (val %))))
+                                       posture/lumbar-lordosis))]
+            {:posture k
+             :deg (:deg v)
+             :sd (:sd v)
+             ;; inside the entry's OWN scatter, not inside a tolerance chosen here
+             :preset-carries (vec (filter #(<= (math/abs* (- % (:deg v))) (:sd v)) carried))
+             :slider-reaches (<= lo (posture/pelvic-tilt-for k) hi)})))))
+
+(def lordosis-note-id
+  "The label the panel and the method page both hang the preset-lordosis statement
+  on. One string, so the coverage probe and the tests look for the same text the
+  page prints."
+  "参照姿勢の前弯")
+
+(defn preset-lordosis
+  "What lordosis the presets on this panel actually carry, and the gap that leaves.
+
+  ⚠ NOTHING IN THE SENTENCE THIS FEEDS IS TYPED, and that is the point rather than
+  a style. `suji`'s reference postures — the three workstations and the three
+  standing postures — state no pelvic tilt, so every preset on this panel is
+  solved at ZERO lordosis, including the standing ones, where Cho measures 47.1
+  deg. This app must not fill that in: the tilt that would be right is a parameter
+  the reference postures' own sources do not state, and choosing one here would
+  move every lumbar number on the page on this app's authority.
+
+  So the page says what is true instead, from numbers it computed. Give
+  `reference-standing-postures` a `:pelvic-tilt-deg` upstream and
+  `:standing-carries` stops being `[0.0]`, the gap closes, and the sentence
+  changes by itself."
+  ([] (preset-lordosis presets))
+  ([ps]
+   (let [lord (fn [xs] (into (sorted-set) (map #(pose/lumbar-lordosis-deg (:posture %))) xs))
+         standing (filter #(= :standing (:group %)) ps)
+         seated (filter #(= :seated (:group %)) ps)]
+     {:carries (vec (lord ps))
+      :standing-carries (vec (lord standing))
+      :seated-carries (vec (lord seated))
+      :standing-measured (:standing posture/lumbar-lordosis)
+      :stool-measured (:stool posture/lumbar-lordosis)
+      :standing-gap-deg (posture/pelvic-tilt-for :standing)
+      :citation (:citation posture/lumbar-lordosis)
+      :url (:url posture/lumbar-lordosis)
+      ;; true only while every preset is at the model's straight neutral
+      :every-preset-straight? (= [0.0] (vec (lord ps)))})))
+
+(defn preset-lordosis-note
+  "The preset-lordosis statement as hiccup. Both branches are written, because
+  `every preset is straight` is a fact about today and not a property of the app —
+  and a sentence that can only say one thing cannot be caught saying the wrong
+  one."
+  ([] (preset-lordosis-note (preset-lordosis)))
+  ([{:keys [standing-carries standing-measured stool-measured standing-gap-deg
+            every-preset-straight? carries citation url]}]
+   (let [deg #(str (math/fmt-fixed % 1) "°")]
+     [:p {:class "suji-note"}
+      [:strong lordosis-note-id] " —— "
+      (if every-preset-straight?
+        [:span
+         "このパネルのプリセットは" [:strong "すべて前弯 " (deg (first carries))]
+         "（腰椎がまっすぐ）で解いている。"
+         "立位プリセットも " [:strong (deg (first standing-carries))] " である。"]
+        [:span
+         "プリセットが持つ前弯は " [:strong (str/join "・" (map deg carries))]
+         "（立位は " (str/join "・" (map deg standing-carries)) "）。"])
+      "Cho らの実測では、丸椅子が " [:strong (deg (:deg stool-measured))]
+      "（SD " (math/fmt-fixed (:sd stool-measured) 1) "）、"
+      "立位が " [:strong (deg (:deg standing-measured))]
+      "（SD " (math/fmt-fixed (:sd standing-measured) 1) "）で、"
+      "この模型のまっすぐな中立からの差は " [:strong (deg standing-gap-deg)] "。"
+      (when every-preset-straight?
+        (str "つまり立位プリセットの腰椎は、立位ではなく丸椅子の前弯で計算されている —— "
+             "これは上流（suji の参照姿勢が骨盤傾斜を持たない）の未対応であって、"
+             "この面で埋めていない。埋めれば数字は動くが、その値の根拠はこの app に無い。"))
+      "骨盤前傾のスライダーはこの差を手で入れるためにある。"
+      "（" citation " " [:a {:href url} "本文"] "）"])))
 
 (def initial-state
   (merge {:view :simulate
@@ -185,6 +305,22 @@
       (nil? m) "—"
       (not (math/finite? m)) (str "∞" caveat)
       :else (str (math/fmt-fixed m 1) " 分" caveat))))
+
+(defn t12l1-solved?
+  "Does the model write an equilibrium at the joint the trunk split created?
+
+  suji 3d494ba placed `:t12l1` and gave the thorax a frame of its own, and wrote
+  no equilibrium there — so the thorax hangs from a joint no muscle acts about.
+  That is a fact about today's model and not a property of it, so BOTH places the
+  page states it read it off the joint-moment table the page itself prints, rather
+  than asserting it. The day an equilibrium is written at T12/L1, the sentences
+  flip on their own.
+
+  `method-view`'s docstring lists five false claims this page has shipped, every
+  one of them a sentence about the model that was true when it was typed. This is
+  the shape of the fix."
+  [loads]
+  (boolean (some #(= "t12l1" (:joint %)) (:joints loads))))
 
 (defn joint-name
   "A joint key as the page writes it. `(name :hip/left)` is `left`, which loses
@@ -410,6 +546,44 @@
             [:strong "支持基底の外"])
           "。モデルはこれを拒否せず報告する —— 支持基底の外に重心がある姿勢は"
           "静止していられないが、それは力学の帰結であって入力の誤りではない。"]))
+      ;; --- the degree of freedom the pelvis got, where a reader can see it -----
+      (let [pst (:posture state)
+            tilt (or (:pelvic-tilt-deg pst) 0.0)
+            lord (pose/lumbar-lordosis-deg pst)
+            chord (pose/lumbar-chord-tilt-deg (or (:trunk-flexion-deg pst) 0.0) tilt)
+            trunk (or (:trunk-flexion-deg pst) 0.0)
+            on-pelvis (sort (map key (filter #(= "pelvis" (:segment (:origin (val %))))
+                                             attachment/muscles)))]
+        (dds/card
+         (dds/heading 3 "骨盤の傾きと腰椎の前弯")
+         [:p {:class "suji-note"}
+          "骨盤は suji 3d494ba まで回らなかった —— どの姿勢でも L5/S1 から真下に置かれて"
+          "いたので、座位と立位は L5/S1 より下でしか違わず、腰椎は両者を区別できなかった。"
+          "いま骨盤が回り、体幹は T12/L1 で 2 つに分かれているので、"
+          [:strong "腰椎が胸郭とは別の向きを持つ"] "。"
+          "前弯（Cobb L1–S1）は定義上その骨盤前傾そのものであり、"
+          "腰椎の弦（1 本の剛体に与える 1 つの向き）は両端の中点 —— "
+          [:strong "一定曲率という仮定"] "から出る値で、測定ではない。"]
+         [:div {:class "dds-ext-row"}
+          (figure (math/fmt-fixed lord 1) "°" "腰椎前弯（Cobb L1–S1）")
+          (figure (math/fmt-fixed chord 1) "°" "腰椎の弦の傾き")
+          (figure (math/fmt-fixed trunk 1) "°" "胸郭の傾き")]
+         [:p {:class "suji-note"}
+          "骨盤に起始を持つ筋・靭帯は " [:strong (str (count on-pelvis))] " 群 —— "
+          (str/join "・" (map #(str/replace % "_" " ") on-pelvis))
+          "。骨盤が回るとその起始が動き、モーメントアームが変わる。"
+          [:strong "前弯は表示だけの量ではない"] "。"
+          ;; DERIVED, both ways. The T12/L1 joint is placed and nothing is solved
+          ;; at it — but that is a fact about today's model, so it is read off the
+          ;; joint-moment table below rather than asserted here. The day an
+          ;; equilibrium is written at T12/L1, this sentence flips on its own
+          ;; instead of going quietly false, which is the failure this view has
+          ;; recorded five times.
+          (if (t12l1-solved? loads)
+            [:strong "T12/L1 でも平衡を解いている。"]
+            [:strong "T12/L1 の関節は置かれているが、そこで解く平衡はまだ無い"
+             "（下の「関節モーメント」にその行が無いのがそれである）。"])]
+         (preset-lordosis-note)))
       (dds/card
        (dds/heading 3 "関節モーメント")
        (dds/table
@@ -657,6 +831,7 @@
         frontal (sort (map :name (filter #(= :frontal (:axis %)) (vals attachment/muscles))))
         cerv (spine/cervical-cross-check body (:posture state) tensions (:cervical loads))
         lumbar (spine/lumbar-cross-check)
+        sitstand (spine/sitting-standing-comparison)
         census (coverage/census body (:posture state) sol)
         counts (:counts census)
         summary (muscle/tension-summary tensions loads)
@@ -714,6 +889,85 @@
        " MPa の実測値から）。姿勢の根拠は文献の記述そのもの —— "
        (:posture-basis lumbar)]
 
+      ;; --- what the degree of freedom made comparable -------------------------
+      (dds/heading 3 "立位と座位 —— 骨盤が回るまで比べられなかった比較")
+      [:p {:class "suji-note"}
+       "Wilke は安静立位と安静座位を" [:strong "別々に"] "測っている（0.50 MPa と 0.46 MPa）。"
+       "この模型は 2 度この比較を拒否していた —— 最初は立てなかったから、次は"
+       "座位と立位が L5/S1 より下でしか違わず L4/L5 に同じ力を返していたから。"
+       "骨盤が回るようになって初めて、両者を分けるもの（前弯）を模型が持てた。"]
+      (dds/table
+       {:headers ["姿勢" "この模型" "Wilke" "比" "入れた前弯" "基準の幅"]
+        :rows (mapv (fn [[label c]]
+                      [label
+                       (str (math/fmt-fixed (:model-force-n c) 1) " N")
+                       (str (math/fmt-fixed (:reference-force-n c) 1) " N")
+                       (math/fmt-fixed (:ratio c) 3)
+                       (str (math/fmt-fixed (:lumbar-lordosis-deg c) 1) "°")
+                       (if (:within-reference-spread? c)
+                         "内"
+                         (if (= :model-above-reference (:direction c))
+                           "外（模型が高い）" "外（模型が低い）"))])
+                    [["安静座位（丸椅子）" (:sitting sitstand)]
+                     ["安静立位" (:standing sitstand)]])})
+      (dds/table
+       {:headers ["量" "値" "意味"]
+        :rows [["立位 − 座位（この模型）"
+                (str (math/fmt-fixed (:model-difference-n sitstand) 1) " N") ""]
+               ["立位 − 座位（Wilke）"
+                (str (math/fmt-fixed (:reference-difference-n sitstand) 1) " N") ""]
+               ["比"
+                (math/fmt-fixed (:difference-ratio sitstand) 3)
+                "1 を大きく超えるほど、この模型は前弯に対して敏感すぎる"]
+               ["向き"
+                (if (:same-direction? sitstand) "向きは一致する" "向きは一致しない")
+                "一致しても証拠にはならない（下）"]
+               ["検証済みなのは"
+                (name (:validated sitstand))
+                (if (:model-validated? sitstand)
+                  "この模型も検証済み"
+                  "この模型は検証されていない")]]})
+      ;; ⚠ THE MODEL'S OWN SENTENCE, not a paraphrase. `suji` states why the
+      ;; agreement in direction is worthless here, and it states it more carefully
+      ;; than a UI would: any lordosis of either sign raises compression in this
+      ;; model, so the sign followed from which posture was given the smaller
+      ;; lordosis and could not have come out the other way. Printed verbatim so
+      ;; that the day the mechanism changes, the caveat on the page changes with
+      ;; it — and so that `:from-value` can check that it is the model's words.
+      [:p {:class "suji-note"}
+       [:strong "向きの一致は証拠ではない"] " —— "
+       (:direction-is-not-evidence sitstand)
+       "。大きさの方は " [:strong (math/fmt-fixed (:difference-ratio sitstand) 3) " 倍"]
+       " ずれており、そちらが所見である。"]
+      ;; the input the reference's own source does not state, carried out of the
+      ;; model rather than restated: its name, its provenance id, and its note.
+      (when-let [pnis (:parameter-not-in-source lumbar)]
+        [:p {:class "suji-note"}
+         [:strong "基準側が述べていない入力"] " —— "
+         [:strong (subs (str (:parameter pnis)) 1)] " ＝ "
+         [:strong (str (math/fmt-fixed (:value pnis) 1) "°")]
+         "（出所 " [:strong (subs (str (:from pnis)) 1)] "、実測 "
+         (math/fmt-fixed (:measured-lordosis-deg pnis) 1) "°）。"
+         (:note pnis)])
+
+      (dds/heading 3 "実測された前弯と、この面が届く範囲")
+      [:p {:class "suji-note"}
+       "左 2 列は " [:strong "モデルが持っている実測値"] "（Cho ら 2015）で、"
+       "右 2 列は" [:strong "この app が自分のプリセットとスライダーから数えたもの"]
+       " —— どちらも書いた文ではない。"]
+      (dds/table
+       {:headers ["姿勢（Cho）" "前弯" "SD" "プリセットが持つ" "スライダーが届く"]
+        :rows (mapv (fn [{:keys [posture deg sd preset-carries slider-reaches]}]
+                      [(subs (str posture) 1)
+                       (str (math/fmt-fixed deg 1) "°")
+                       (str (math/fmt-fixed sd 1) "°")
+                       (if (seq preset-carries)
+                         (str/join "・" (map #(str (math/fmt-fixed % 1) "°") preset-carries))
+                         "（無し）")
+                       (if slider-reaches "届く" "届かない")])
+                    (measured-lordosis))})
+      (preset-lordosis-note)
+
       (dds/heading 3 "実装されているもの（数はモデルから数えている）")
       [:ul
        [:li "椎間板レベル：" [:strong (str (count spine/levels))]
@@ -742,6 +996,26 @@
                            3)
                           " pN·m")]
             " —— 満たしていると言うだけでなく、どれだけ満たしているかを出す。"]
+       ;; ⚠ COUNTED, and the count is the thing that was wrong for a day. suji
+       ;; split `thorax_abdomen` at T12/L1 and three tables in `scene` were still
+       ;; keyed by the name it lost, so both new segments drew unloaded. Nothing
+       ;; here may say `two` as a word: it says however many `segment/trunk-bases`
+       ;; names, and names them.
+       [:li "体幹の分節："
+            [:strong (str (count segment/trunk-bases))]
+            "（" (str/join "・" segment/trunk-bases) "）—— T12/L1 で分かれており、"
+            "腰椎は胸郭とは別の向きを持てる。"
+            (if (t12l1-solved? loads)
+              "T12/L1 でも平衡を解いている。"
+              "ただし T12/L1 で解く平衡はまだ無い。")]
+       [:li "骨盤の回転："
+            [:strong (if (contains? (set (map (comp last :path) controls)) :pelvic-tilt-deg)
+                       "入力できる" "入力できない")]
+            "（前弯 ＝ Cobb L1–S1 はこの入力そのもの）。"
+            "骨盤に起始を持つ筋・靭帯は "
+            [:strong (str (count (filter #(= "pelvis" (:segment (:origin %)))
+                                         (vals attachment/muscles))))]
+            " 群あり、骨盤が回るとその起始とモーメントアームが動く。"]
        [:li "骨は解剖学的メッシュで描く（円柱ではない）。筋は線のまま —— "
             "モデルが断面を持たないので、太さを描けばそれは装飾である。"]]
 
