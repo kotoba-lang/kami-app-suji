@@ -13,7 +13,6 @@
   comparison is one body across setups, never one person against another."
   (:require [clojure.string :as str]
             [jp-go-dds.core :as dds]
-            [suji.methods.attachment :as attachment]
             [kami.app-suji.route :as route]
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
@@ -88,10 +87,19 @@
 (defn coeff-label
   "A task coefficient with its unit. `recruit` returns a moment arm in metres for a
   moment equilibrium and a DIMENSIONLESS direction cosine for a suspended force —
-  printing both as millimetres would put a cosine of 0.41 on the page as 410 mm."
+  printing both as millimetres would put a cosine of 0.41 on the page as 410 mm.
+
+  The task is read off the tension entry, which carries it. It used to be looked up
+  as `(:task (get suji.methods.attachment/muscles (:name t)))`, and that map is keyed by
+  GROUP (`upper_trapezius`) while a tension entry is named by INSTANCE
+  (`upper_trapezius/left`) — every suspension muscle is `:paired?`, so the lookup
+  returned nil for all of them and the guard was dead. The page shipped six rows of
+  `343.3 mm` / `480.9 mm` / `176.9 mm` at the DEFAULT posture: a 34 cm moment arm at
+  the shoulder, on the muscles this app's own prose calls the 肩こり muscles. The
+  guard was written to prevent exactly that and could not fire once."
   [t]
   (let [c (:coeff t)
-        suspension? (= :scapular-suspension (:task (get attachment/muscles (:name t))))]
+        suspension? (= :scapular-suspension (:task t))]
     (cond
       (nil? c) "—"
       suspension? (str (math/fmt-fixed c 2) " (cos)")

@@ -40,6 +40,16 @@
 
 (def url (or (.. process -env -SUJI_URL) "http://localhost:8741/"))
 (def root-url (if (str/ends-with? url "/") url (str url "/")))
+(def refused-rows-js
+  "Names of the muscle-table rows whose %MVC cell reads 適用範囲外.
+
+  Reads the CELL, not the page text: `適用範囲外` also appears in the colour legend
+  at every posture, so a `body.innerText` search cannot tell a refused row from the
+  legend that explains what a refused row looks like."
+  "Array.from(document.querySelectorAll('tbody tr'))
+     .filter(r => Array.from(r.querySelectorAll('td')).some(c => c.innerText.trim() === '適用範囲外'))
+     .map(r => r.querySelector('td').innerText.trim())")
+
 (def shot-path (or (.. process -env -SUJI_SHOT) "/tmp/kami-app-suji.png"))
 
 (defonce results (atom []))
@@ -200,6 +210,40 @@
                (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
 
+   ;; 5b. …and the two checks above cannot fail on their own.
+   ;;
+   ;; Both strings are hard-coded literals that the page carries at EVERY posture:
+   ;; `適用範囲外` sits in the colour legend, and the default posture already has
+   ;; four antagonists producing `力を計算していない`. So check 5 held before either
+   ;; slider was touched, and would have gone on holding if the sliders did nothing
+   ;; at all. What it means to assert is that the extreme posture refuses MORE than
+   ;; the default one — so count the refused rows on both sides of the move.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             _ (.evaluate page "(() => {
+                   const set = (id, v) => { const el = document.getElementById(id);
+                     el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); };
+                   set('posture-trunk-flexion-deg', 0);
+                   set('posture-trunk-lateral-bend-deg', 0);
+                 })()")
+             _ (.waitForTimeout page 400)
+             before (.evaluate page refused-rows-js)
+             _ (.evaluate page "(() => {
+                   const set = (id, v) => { const el = document.getElementById(id);
+                     el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); };
+                   set('posture-trunk-flexion-deg', 60);
+                   set('posture-trunk-lateral-bend-deg', 40);
+                 })()")
+             _ (.waitForTimeout page 400)
+             after (.evaluate page refused-rows-js)]
+       (let [b (set (js->clj before)) a (set (js->clj after))]
+         (check! "moving to an extreme posture refuses rows the default posture does not"
+                 (seq (remove b a))
+                 (str "refused at default: " (pr-str (sort b))
+                      " — refused at trunk 60 / bend 40: " (pr-str (sort a))
+                      " (nothing new was refused, so check 5 measured a literal)")))))
+
    ;; 6. an out-of-plane control actually moves the picture
    (fn []
      (p/let [before (.evaluate page "document.querySelector('.suji-figure').innerText")
@@ -230,16 +274,26 @@
    ;; 8. the spine view exists and carries the level table with its caveat
    (fn []
      (p/let [_ (.click page "a[href='#/spine']")
-             _ (.waitForSelector page "table")
-             ;; innerText needs LAYOUT, and `table` exists before the rows do.
-             ;; Reading it in the same tick as the commit returns the shell
-             ;; without the view — the same hazard the comparison check below
-             ;; already documents, which this block was missing. It passed by
-             ;; luck until the bone checks above added ~800ms and two extra
-             ;; renders ahead of it, and then failed three assertions at once
-             ;; while the structural check on the same table kept passing.
+             ;; Two sessions diagnosed this race independently and fixed it two
+             ;; different ways; this is both, because each catches something the
+             ;; other does not.
+             ;;
+             ;; WHICH VIEW. `waitForSelector "table"` returns instantly after the
+             ;; click, because the simulate view has tables too, so the assertions
+             ;; read the view we just left. Waiting on `tbody tr` does not fix that
+             ;; either: the simulate view has rows as well. Wait for a heading only
+             ;; the spine view has.
+             ;;
+             ;; WHETHER IT IS LAID OUT. `innerText` needs layout, and the element
+             ;; can exist a tick before its text is measurable. Hence the settle.
+             ;;
+             ;; It had been passing by luck. Two changes landing the same day — a
+             ;; check inserted earlier in the run, and the bone checks adding
+             ;; ~800ms and two extra renders ahead of it — both made it start
+             ;; losing, in one case failing three assertions at once while the
+             ;; structural check on the same table kept passing.
              _ (.waitForFunction page
-                "() => document.querySelectorAll('tbody tr').length > 0"
+                "() => Array.from(document.querySelectorAll('th')).some(e => e.innerText.trim() === 'レベル')"
                 #js {} #js {:timeout 8000})
              _ (.waitForTimeout page 200)
              body (.evaluate page "document.body.innerText")]
