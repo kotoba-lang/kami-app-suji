@@ -605,6 +605,7 @@
         lumbar (spine/lumbar-cross-check)
         census (coverage/census body (:posture state) sol)
         counts (:counts census)
+        summary (muscle/tension-summary tensions loads)
         dose strain/model-form]
     [:div {:class "dds-ext-container"}
      (dds/section {}
@@ -645,6 +646,24 @@
        [:li "前額面（外転・側屈）の筋：" [:strong (str (count frontal))]
             "（" (str/join "・" frontal) "）"]
        [:li "モーメントアームは筋の起始・停止から幾何で計算する（定数表ではない）。"]
+       ;; ⚠ THIS ITEM DID NOT EXIST ON 2026-09-07 AND WAS THE LARGEST THING THE
+       ;; MODEL COULD NOT DO. The closed form solved one equality constraint, so a
+       ;; two-joint muscle was solved at one joint and its moment at the other was
+       ;; reported and not satisfied. Both numbers are counted rather than stated.
+       [:li "同時に満たしている平衡："
+            [:strong (str (count (distinct (keep :coupled-joints tensions))))]
+            " 群（"
+            (str/join "、"
+                      (for [js (distinct (keep :coupled-joints tensions))]
+                        (str/join "·" (map joint-name js))))
+            "）。残差の最大は "
+            [:strong (str (math/fmt-fixed
+                           (* 1.0e12 (reduce max 0.0
+                                             (map math/abs*
+                                                  (vals (:coupled-residual-nm summary)))))
+                           3)
+                          " pN·m")]
+            " —— 満たしていると言うだけでなく、どれだけ満たしているかを出す。"]
        [:li "骨は解剖学的メッシュで描く（円柱ではない）。筋は線のまま —— "
             "モデルが断面を持たないので、太さを描けばそれは装飾である。"]]
 
@@ -682,9 +701,27 @@
               "「まだ探していない」ではなく、探して見つからなかった。"))]
 
       (dds/heading 3 "まだ無いもの")
+      ;; ⚠ THE FIRST ITEM HERE WAS FALSE UNTIL 2026-09-08. It said the suboccipital
+      ;; group was missing because the atlanto-occipital joint did not exist and the
+      ;; head and neck were one rigid body. The joint exists, and three suboccipitals
+      ;; are solved across it. That is the fifth false claim this section has made,
+      ;; and the fix is the one the rest of this view already uses: derive it.
+      ;;
+      ;; What CANNOT be derived stays prose, and is prose about the shape of the
+      ;; model rather than about its contents — an attachment being a point is not a
+      ;; key anything can count.
       [:ul
-       [:li "後頭下筋群。環椎後頭関節が無く頭頸部が 1 つの剛体なので、両端が同じ分節に"
-            "乗る —— 足りないのは関節であって、付着では供給できない。"]
+       (when-not (contains? attachment/muscles "obliquus_capitis_inferior")
+         [:li "後頭下筋のうち" [:strong "下頭斜筋"]
+              " —— 両端が環軸間に乗るので、環椎後頭関節ではなく環軸関節が要る。"
+              "他の 3 つ（大後頭直筋・小後頭直筋・上頭斜筋）は解かれている。"])
+       (when-let [js (seq (sort-by str (keys (:two-joint-unfed-nm summary))))]
+         [:li "どの平衡にも渡されていないモーメントが残る関節："
+              [:strong (str/join "・" (map joint-name js))]
+              " —— 連立解は首の 2 関節と片脚の 3 関節を同時に満たすが、"
+              "この関節群にはそもそも解くべき方程式が無い。"
+              "c2c3 を阻んでいるのは分節化ではなく出典で、"
+              "集中定数 cervical_extensors の 12.0 cm² 自体に出典が無い。"])
        [:li "筋の付着は点であって、複数椎骨にまたがる面ではない。"]
        [:li "PCSA とモーメントアームは代表値であって個人の測定値ではない（G7）。"]]
 
