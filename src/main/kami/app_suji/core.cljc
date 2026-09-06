@@ -162,10 +162,14 @@
        [:div {:class "suji-backend"} (or (some-> (:backend state) name) "…")]]
       [:p {:class "suji-note"}
        "色は各分節がぶら下がる関節の %MVC（最大随意収縮に対する割合）。"
-       "力学量であって所見ではない。"]
+       "力学量であって所見ではない。"
+       [:strong "下の表の「帯」とは別の量である"]
+       " —— 絵は" [:strong "その瞬間の"] "負荷を、表は作業時間ぶん積み上げた"
+       [:strong "ドーズ"] "を帯分けする。120 分保持なら 9 %MVC の筋は"
+       "「瞬間は低く、ドーズは高い」であり、両方とも正しい。"]
       (into [:div {:class "dds-ext-row"}]
             (concat
-             (for [{:keys [band rgb max-mvc-pct]} (:legend scene)]
+             (for [{:keys [band rgb max-mvc-pct]} (:bands (:legend scene))]
                [:span {:class "suji-note"}
                 [:span {:class "suji-swatch" :style {:background (rgb-css rgb)}}]
                 band

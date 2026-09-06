@@ -12,11 +12,27 @@
   which is the point of them sharing one source.
 
   COLOUR IS A CLAIM. Each bone is tinted by the load carried at the joint it hangs
-  from, expressed as the highest %MVC among the muscles that cross that joint. That
-  is a mechanical quantity (force ÷ maximum voluntary force), and the bands below are
-  the same ones `strain/stiffness-band` already uses for text — so the picture and
-  the table cannot say different things. NON-DIAGNOSTIC (G1): a colour is not a
-  finding, and there is no colour in this file that means anything clinical."
+  from, expressed as the highest %MVC among the muscles that cross that joint —
+  a mechanical quantity, force divided by maximum voluntary force.
+
+  ⚠ IT IS NOT THE TABLE の QUANTITY, and this docstring claimed it was until
+  2026-09-07: it said the bands here were the same ones `strain/stiffness-band`
+  uses for text, so the picture and the table could not say different things. They
+  say different things at almost every load. Measured at a 120-minute session:
+
+      9 %MVC   picture moderate   table very-high
+     15 %MVC   picture high       table very-high
+      5 %MVC   picture moderate   table low
+
+  The picture bands an INSTANTANEOUS load and the table bands an ACCUMULATED DOSE,
+  which depends on how long the posture is held; at 120 minutes a muscle at
+  9 %MVC has a high dose and a low instantaneous load, and both statements are
+  true. The defect was never the colours — it was sharing the four words
+  low/moderate/high/very-high between two quantities and then asserting they could
+  not disagree. The legend now carries which quantity it bands.
+
+  NON-DIAGNOSTIC (G1): a colour is not a finding, and there is no colour in this
+  file that means anything clinical."
   (:require [suji.methods.attachment :as attachment]
             [suji.methods.load :as load]
             [suji.methods.math :as math]
@@ -49,8 +65,10 @@
 ;; --- the load ramp -----------------------------------------------------------
 ;; Linear RGB for the GPU, not CSS: these never reach a stylesheet, so the
 ;; design-system token contract does not apply to them (it governs app CSS). The
-;; breakpoints are `strain/stiffness-band`'s, restated as %MVC so one scale drives
-;; both the 3-D view and the table.
+;; breakpoints are %MVC. They are NOT `strain/stiffness-band`'s breakpoints — that
+;; function bands a session-dependent dose in [0,1] at 0.20/0.45/0.70, and this
+;; bands an instantaneous load in percent at 5/15/30. Two scales, two quantities,
+;; and this comment used to say they were one.
 (def load-bands
   [{:band "low"       :max-mvc-pct 5.0   :rgb [0.36 0.72 0.47]}
    {:band "moderate"  :max-mvc-pct 15.0  :rgb [0.85 0.76 0.32]}
@@ -458,8 +476,15 @@
   "Axis-aligned bounds of the placed chain, including the drawn thickness — the
   camera has to frame what is on screen, not the centre-lines."
   [pose-data]
-  (let [pts (mapcat (fn [{:keys [proximal distal name]}]
-                      (let [r (get bone-radius-m name 0.03)]
+  (let [pts (mapcat (fn [{:keys [proximal distal base]}]
+                      ;; keyed by `:base`, the way `bone-draws` keys it. It used to
+                      ;; key by `:name`, which is the INSTANCE (`upper_arm/left`)
+                      ;; while `bone-radius-m` is a table of segments — so every
+                      ;; paired limb missed and fell to the 0.03 default while
+                      ;; being drawn at 0.032. The camera framed a body 2 mm
+                      ;; thinner at the upper arm than the one on screen, under a
+                      ;; docstring saying it frames what is on screen.
+                      (let [r (get bone-radius-m base 0.03)]
                         [(mapv - proximal [r r r]) (mapv + proximal [r r r])
                          (mapv - distal [r r r]) (mapv + distal [r r r])]))
                     (:segments pose-data))
@@ -571,9 +596,14 @@
      :discs []
      :joints (joint-draws p)
      :camera (camera p)
-     :legend (mapv (fn [{:keys [band max-mvc-pct rgb]}]
-                     {:band band :max-mvc-pct max-mvc-pct :rgb rgb})
-                   load-bands)}))
+     ;; `:quantity` travels with the legend because the four band words are also
+     ;; the dose's band words, and a legend that does not say which quantity it is
+     ;; banding invites the reader to compare a picture against a table that is
+     ;; measuring something else.
+     :legend {:quantity :mvc-pct
+              :bands (mapv (fn [{:keys [band max-mvc-pct rgb]}]
+                             {:band band :max-mvc-pct max-mvc-pct :rgb rgb})
+                           load-bands)}}))
 
 (defn solve-and-scene
   "Convenience: posture → loads → tensions → scene, in one call, using suji for
