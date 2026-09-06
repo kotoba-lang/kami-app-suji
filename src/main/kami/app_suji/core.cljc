@@ -38,6 +38,9 @@
    {:path [:posture :shoulder-abduction-deg] :label "肩外転（前額面）" :unit "°" :min 0 :max 90 :step 1}
    {:path [:posture :trunk-lateral-bend-deg] :label "体幹側屈（前額面）" :unit "°" :min -40 :max 40 :step 1}
    {:path [:posture :head-rotation-deg] :label "頭部回旋" :unit "°" :min -70 :max 70 :step 1}
+   {:path [:posture :hip-flexion-deg] :label "股関節屈曲" :unit "°" :min 0 :max 120 :step 1}
+   {:path [:posture :knee-flexion-deg] :label "膝屈曲" :unit "°" :min 0 :max 130 :step 1}
+   {:path [:posture :ankle-dorsiflexion-deg] :label "足関節背屈" :unit "°" :min -20 :max 30 :step 1}
    {:path [:session-minutes] :label "連続作業時間" :unit "分" :min 10 :max 480 :step 10}])
 
 (def out-of-plane-defaults
@@ -57,6 +60,34 @@
   (merge out-of-plane-defaults
          (posture/posture-from-workstation w)
          {:preset (:name w)}))
+
+(def presets
+  "Every posture the panel offers, as one table.
+
+  Two GROUPS, and the grouping is the point rather than tidiness. A workstation is
+  a description of furniture that `posture/posture-from-workstation` turns into
+  angles, and it is always `:seated`. A standing reference posture is already a
+  posture and carries `:support :standing`.
+
+  That difference is the largest single fact in the lower-limb model. Seated, the
+  chair takes the trunk through the ischial tuberosities and the hip, knee and
+  ankle carry only what is distal to them. Standing, the whole body's weight
+  reaches the floor through both legs. Measured in `suji`: 333 N through a standing
+  ankle against 10 N through a seated one, from the same joint angles. So the
+  panel must never let a reader move a knee slider without being able to see which
+  regime the answer came from."
+  (concat
+   (for [w posture/reference-workstations]
+     {:name (:name w) :group :seated :posture (workstation-posture w)})
+   (for [p posture/reference-standing-postures]
+     {:name (:name p) :group :standing
+      :posture (merge out-of-plane-defaults p {:preset (:name p)})})))
+
+(defn preset-posture
+  "The posture for a preset name, or nil. Pure, so the button table and the click
+  handler cannot disagree about what a preset means."
+  [preset-name]
+  (some #(when (= preset-name (:name %)) (:posture %)) presets))
 
 (def initial-state
   (merge {:view :simulate
@@ -122,7 +153,8 @@
 
 (defn simulate-view [state]
   (let [{:keys [loads tensions strains scene]} (solved state)
-        cerv (:cervical loads)]
+        cerv (:cervical loads)
+        sup (:support loads)]
     [:div {:class "suji-main"}
      [:div
       [:div {:class "suji-stage"}
@@ -168,6 +200,23 @@
         (figure (math/fmt-fixed (:compressive-load-kgf cerv) 1) "kgf" "圧縮荷重")
         (figure (math/fmt-fixed (:multiplier-vs-head cerv) 1) "×" "頭部重量比")
         (figure (math/fmt-fixed (:compressive-load-n cerv) 0) "N" "同 (N)")])
+      (dds/card
+       (dds/heading 3 "身体を支えているもの")
+       [:p {:class "suji-note"}
+        "下肢の関節が何を持つかは姿勢の角度から決まらない —— 決めるのは"
+        [:strong "身体がどこに載っているか"] "である。座位では椅子が坐骨結節から体幹を受け、"
+        "その荷重は股・膝・足関節を通らない。立位では骨盤の下に何も無いので、"
+        "全体重が両脚を通って床へ届く。統計学的には差はちょうど 1 つの力（床反力）で、"
+        "それが足部の重量より一桁大きい。"]
+       [:div {:class "dds-ext-row"}
+        (figure (if (= :standing (:mode sup)) "立位" "座位") "" "支持")
+        (figure (math/fmt-fixed (:ground-reaction-per-foot-n sup) 0) "N" "床反力（片足）")
+        (figure (math/fmt-fixed (:body-weight-n sup) 0) "N" "体重")]
+       (when (= :standing (:mode sup))
+         [:p {:class "suji-note"}
+          "圧力中心は" (if (:cop-inside-base? sup) "支持基底内" [:strong "支持基底の外"])
+          "。モデルはこれを拒否せず報告する —— 支持基底の外に重心がある姿勢は"
+          "静止していられないが、それは力学の帰結であって入力の誤りではない。"]))
       (dds/card
        (dds/heading 3 "関節モーメント")
        (dds/table
@@ -343,16 +392,34 @@
      "、描画は " [:a {:href "https://github.com/kotoba-lang/webgpu"} "kotoba-lang/webgpu"]
      "（WebGPU、WebGL 2.0 フォールバック）。"])])
 
+(defn support-note
+  "Which regime the numbers on this page came from.
+
+  Stated in the panel, not inferred from the preset name, because the hip, knee
+  and ankle sliders mean two different things depending on it and nothing else on
+  the page says which. Seated, the chair carries the trunk and those joints hold
+  only the limb below them; standing, they carry the whole body — the same angles
+  give 333 N through a standing ankle and 10 N through a seated one."
+  [state]
+  (if (posture/standing? (:posture state))
+    [:p {:class "suji-note"}
+     [:strong "立位"] " —— 体重は両脚を通って床へ届く。股・膝・足関節は"
+     "その関節より上の全部を支える。"]
+    [:p {:class "suji-note"}
+     [:strong "座位"] " —— 椅子が坐骨結節から体幹を受ける。その荷重は股・膝・足関節を"
+     [:strong "通らない"] "ので、下肢の各関節が持つのはその先にある肢節だけ。"]))
+
 (defn control-panel [state]
   (into [:div {:class "dds-ext-stack"}
          (dds/heading 3 "入力")
          (into [:div {:class "dds-ext-row"}]
-               (for [w posture/reference-workstations]
-                 (dds/button (:name w)
-                             {:type (if (= (:name w) (get-in state [:posture :preset]))
+               (for [{:keys [name group]} presets]
+                 (dds/button (str (if (= :standing group) "立 " "座 ") name)
+                             {:type (if (= name (get-in state [:posture :preset]))
                                       :solid-fill :outline)
                               :size "sm"
-                              :attrs {:data-preset (:name w)}})))]
+                              :attrs {:data-preset name}})))
+         (support-note state)]
         (for [{:keys [path label unit min max step]} controls]
           [:div {:class "suji-control"}
            [:label {:for (str/join "-" (map name path))}

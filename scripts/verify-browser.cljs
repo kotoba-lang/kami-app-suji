@@ -40,6 +40,16 @@
 
 (def url (or (.. process -env -SUJI_URL) "http://localhost:8741/"))
 (def root-url (if (str/ends-with? url "/") url (str url "/")))
+(def readout-js
+  "Each readout figure as `<value> <unit> <label>`.
+
+  Reads the readout ITEMS rather than the page text: the paragraph above them
+  explains what the ground reaction is and uses the same word, so a text search
+  stays green after the figure is deleted — measured, in the JVM test for the same
+  thing, which passed with the figure removed until it was rewritten this way."
+  "Array.from(document.querySelectorAll('.suji-readout-item'))
+     .map(e => e.innerText.replace(/\\s+/g, ' ').trim())")
+
 (def refused-rows-js
   "Names of the muscle-table rows whose %MVC cell reads 適用範囲外.
 
@@ -210,6 +220,31 @@
                (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
 
+   ;; 5a. the standing preset reaches the browser.
+   ;;
+   ;; `apply-preset` lives in `ui.cljs` and is only reachable by a click, so the
+   ;; JVM suite can prove the preset TABLE is consistent and cannot prove that
+   ;; pressing the button does anything. The support mode is not a slider — a
+   ;; preset is the only way to reach standing at all — so if this wiring were
+   ;; broken, half the lower-limb model would be unreachable from the page while
+   ;; looking entirely present in the physics.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             before (.evaluate page readout-js)
+             _ (.click page "[data-preset='standing-neutral']")
+             _ (.waitForTimeout page 400)
+             after (.evaluate page readout-js)]
+       (let [b (js->clj before) a (js->clj after)]
+         (check! "pressing a standing preset changes the support regime"
+                 (and (not= b a) (some #(str/includes? % "立位") a))
+                 (str "readout before " (pr-str b) " after " (pr-str a)))
+         (check! "and the ground reaction under one foot is no longer zero"
+                 (some #(re-find #"[1-9]\d* N" %)
+                       (filter #(str/includes? % "床反力") a))
+                 (str "ground-reaction figures after standing: "
+                      (pr-str (filter #(str/includes? % "床反力") a)))))))
+
    ;; 5b. …and the two checks above cannot fail on their own.
    ;;
    ;; Both strings are hard-coded literals that the page carries at EVERY posture:
@@ -371,9 +406,12 @@
       ;; pass. Cf. the workspace rule that a check which could not run has to be
       ;; distinguishable from a check that passed.
       (cond
-        ;; raised from 16 when the bone-mesh checks landed: an evidence floor that
-        ;; does not move when the suite grows stops being a floor
-        (< (count @results) 22)
+        ;; 16 -> 22 when the bone-mesh checks landed, 22 -> 27 with the
+        ;; lower-limb preset checks: an evidence floor that does not move when the
+        ;; suite grows stops being a floor. One below the current count, so that a
+        ;; single check silently failing to register is caught while an
+        ;; intentional removal is a deliberate edit here.
+        (< (count @results) 27)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)
