@@ -50,9 +50,31 @@
   muscles and a segment on the left is coloured by the left one. Matching on the
   instance name would have needed this table written twice; matching on the group
   and the segment's own side needs it written once."
-  {"head_neck"      #{"cervical_extensors" "scalenes" "nuchal_ligament"}
+  {;; `head_neck` was one body from C7 to the vertex until suji 1c7ad97 split it
+   ;; into three so the suboccipitals could have a joint to cross. Its entry
+   ;; SILENTLY went stale here: this map is keyed by segment name, the name
+   ;; disappeared, and a segment with no entry is simply drawn unloaded — no
+   ;; error, no missing bone, just a neck that stopped reporting its own load.
+   ;; `every-muscle-group-is-assigned-to-a-segment` now makes that unshippable.
+   "lower_cervical" #{"cervical_extensors" "scalenes" "nuchal_ligament"
+                      "semispinalis_capitis" "splenius_capitis" "sternocleidomastoid"}
+   ;; C2/C3 has muscles CROSSING it but none acting AT it — suji names that gap
+   ;; itself, and an empty set here is the honest reading of it rather than a
+   ;; missing key.
+   "upper_cervical" #{}
+   "head"           #{"rectus_capitis_posterior_major" "rectus_capitis_posterior_minor"
+                      "obliquus_capitis_superior"}
    "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"
                       "posterior_lumbar_ligaments"}
+   ;; THE WHOLE LOWER LIMB WAS MISSING FROM THIS MAP, and had been since suji grew
+   ;; one. Both legs were drawn unloaded in every posture — including a deep squat
+   ;; — because a segment with no entry here gets `{:kind :none}` and the base
+   ;; colour, which is exactly what an unmuscled segment like the pelvis looks
+   ;; like. Nothing failed; the legs were simply grey. Found the moment the two
+   ;; guard tests below existed, not before.
+   "thigh"          #{"gluteus_maximus" "iliopsoas"}
+   "shank"          #{"vasti" "rectus_femoris" "hamstrings"}
+   "foot"           #{"gastrocnemius" "soleus" "tibialis_anterior"}
    "upper_arm"      #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
                       "upper_trapezius" "middle_trapezius" "levator_scapulae"}
    ;; the forearm hangs off the ELBOW and the hand off the WRIST — the shoulder
@@ -271,7 +293,9 @@
   "Drawn thickness per segment (metres). Visual only — the physics is a line-mass
   model and carries no cross-section, so this is honestly decoration and is stated
   here rather than hidden in a shader."
-  {"pelvis" 0.055 "thorax_abdomen" 0.062 "head_neck" 0.048
+  {"pelvis" 0.055 "thorax_abdomen" 0.062
+   ;; the neck is narrower than the trunk and the skull is wider than both
+   "lower_cervical" 0.036 "upper_cervical" 0.040 "head" 0.072
    "upper_arm" 0.032 "forearm" 0.026 "hand" 0.020
    ;; the lower limb, for whenever suji grows one
    "thigh" 0.042 "shank" 0.033 "foot" 0.024})
@@ -312,9 +336,22 @@
    :pelvic-block   {:generator :vertebral-body
                     :params {:sectors 20 :endplate-flare 1.45 :waist 0.72
                              :posterior-flatten 0.78}}
+   ;; The skull is its own segment as of 2026-09-07 — `head_neck` used to be one
+   ;; body from C7 to the vertex, and drawing it as a slightly-waisted column was
+   ;; a fair compromise for a thing that was mostly neck. It is now the cranium
+   ;; alone, so it is drawn round: a barrel that flares at both ends and is
+   ;; flattened front-to-back the way a head is.
    :cranium        {:generator :vertebral-body
-                    :params {:sectors 20 :endplate-flare 1.3 :waist 0.92
-                             :posterior-flatten 0.85}}
+                    :params {:sectors 24 :endplate-flare 1.62 :waist 1.0
+                             :posterior-flatten 0.88}}
+   ;; C3–C7 as a column, and the atlas + axis as a shorter, wider one. Same
+   ;; generator as the trunk's spine, because that is what they are.
+   :cervical-column {:generator :vertebral-body
+                     :params {:sectors 20 :endplate-flare 1.18 :waist 0.8
+                              :posterior-flatten 0.62}}
+   :atlas-axis     {:generator :vertebral-body
+                    :params {:sectors 20 :endplate-flare 1.34 :waist 0.86
+                             :posterior-flatten 0.7}}
    ;; the fallback. suji is growing segments (a lower limb, a scapulothoracic
    ;; element) and a name this app has never heard of must get a bone, not a
    ;; crash and not an invisible draw.
@@ -333,7 +370,14 @@
   reports are the joints between these."
   {"pelvis" :pelvic-block
    "thorax_abdomen" :vertebral-column
-   "head_neck" :cranium
+   ;; `head_neck` was one rigid body from C7 to the vertex and is gone as of
+   ;; suji 1c7ad97, which split it into three so the suboccipitals could have a
+   ;; joint to cross. Its entry is NOT kept as an alias: an alias for a segment
+   ;; the physics no longer produces would draw nothing and say nothing, and the
+   ;; fallback already covers a name this app has not been told about.
+   "lower_cervical" :cervical-column
+   "upper_cervical" :atlas-axis
+   "head" :cranium
    "upper_arm" :humerus
    "forearm" :radius-ulna
    "hand" :short-bone
@@ -446,11 +490,19 @@
   drawn at 62 mm, so every one of these is hidden. Adding them to the frame would
   spend GPU slots on objects nobody can see, and — worse — would let a reader
   believe the picture shows the spine when it does not. The level profile is on
-  the `#/spine` view, where it is a table and can be read."
-  [pose-data body tensions]
+  the `#/spine` view, where it is a table and can be read.
+  ⚠ IT WAS NOT CORRECT, and the sentence above saying it was is why. `spine/level-compression`
+  took a posture on 2026-09-07 and this call still passed four arguments. shadow-cljs
+  reports an arity mismatch as a WARNING, so the build kept succeeding; `clojure -M:test`
+  never noticed because nothing called this function at all — its only mention anywhere
+  was a comment saying it exists and is correct. Code that nothing calls has no
+  correctness, only a claim about it, and `disc-geometry-still-computes` is now that
+  claim's evidence."
+
+  [pose-data body posture tensions]
   (vec (for [lvl spine/levels
              :let [{:keys [point axis]} (spine/level-point pose-data lvl)
-                   row (spine/level-compression body pose-data tensions lvl)
+                   row (spine/level-compression body posture pose-data tensions lvl)
                    frac (math/clamp (/ (:stress-mpa row) disc-stress-max-mpa) 0.0 1.0)]]
          {:label (:name lvl)
           :geo :cylinder

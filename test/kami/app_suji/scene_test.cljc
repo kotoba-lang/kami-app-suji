@@ -5,7 +5,8 @@
   does that — but that the picture and the numbers are the SAME claim: a segment
   the physics says is loaded has to be a colour the legend calls loaded, and the
   camera has to frame what is actually on screen."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.set]
+            [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
@@ -13,6 +14,7 @@
             [suji.methods.pose :as pose]
             [suji.methods.posture :as posture]
             [suji.methods.segment :as segment]
+            [suji.methods.spine :as spine]
             [suji.methods.strain :as strain]))
 
 (def ^:private body (segment/build-body 70.0 1.70))
@@ -122,7 +124,9 @@
   ;; the failure this prevents: a view that recomputes its own loads and drifts
   ;; from the readout beside it
   (let [{:keys [tensions scene]} (for-ws posture/laptop-on-lap)
-        head-bone (first (filter #(= "head_neck" (:label %)) (:bones scene)))
+        ;; the segment that hangs from C7 —  until suji 1c7ad97 split
+        ;; the neck into three,  since
+        head-bone (first (filter #(= "lower_cervical" (:label %)) (:bones scene)))
         cerv (first (filter #(= "cervical_extensors" (:name %)) tensions))]
     (is (math/nearly= (:mvc-pct cerv) (:mvc-pct head-bone) 1e-12))))
 
@@ -305,3 +309,62 @@
   (is (nil? (scene/band-for nil)))
   (is (some? (scene/band-for 0.0)))
   (is (= "low" (:band (scene/band-for 1.0)))))
+
+(deftest every-segment-the-model-places-has-an-entry-in-joint-muscles
+  ;; `joint-muscles` is keyed by segment name, and a segment with NO entry is
+  ;; drawn unloaded — no error, no missing bone, just a body part that silently
+  ;; stops reporting its own load. That is what happened on 2026-09-07: suji split
+  ;; `head_neck` into three, this map still said `head_neck`, and the neck would
+  ;; have gone grey while looking entirely normal.
+  (let [placed (set (map :base (:segments (pose/solve-pose body (:posture core/initial-state)))))
+        keyed (set (keys scene/joint-muscles))]
+    (is (seq placed) "no segments placed, so this asserts nothing")
+    (is (empty? (clojure.set/difference placed keyed))
+        (str "segments the model places with no entry here: "
+             (pr-str (sort (clojure.set/difference placed keyed)))))
+    (is (empty? (clojure.set/difference keyed placed))
+        (str "entries here for segments the model no longer places: "
+             (pr-str (sort (clojure.set/difference keyed placed)))))))
+
+(deftest every-muscle-group-the-model-solves-is-assigned-to-a-segment
+  ;; The other direction. A muscle group that reaches no segment contributes to no
+  ;; colour, so a newly added muscle would be computed, tabled, and invisible in
+  ;; the picture — which is how the frontal-plane muscles could have arrived
+  ;; without anything on screen changing.
+  (let [{:keys [tensions]} (core/solved core/initial-state)
+        solved (set (map :group tensions))
+        assigned (set (mapcat identity (vals scene/joint-muscles)))]
+    (is (seq solved) "nothing solved, so this asserts nothing")
+    (is (empty? (clojure.set/difference solved assigned))
+        (str "muscle groups the model solves that no segment is coloured by: "
+             (pr-str (sort (clojure.set/difference solved assigned)))))
+    (is (empty? (clojure.set/difference assigned solved))
+        (str "groups named here that the model does not solve: "
+             (pr-str (sort (clojure.set/difference assigned solved)))))))
+
+(deftest disc-geometry-still-computes
+  ;; `disc-draws` is deliberately not in the frame — a disc is ~24 mm at L5/S1
+  ;; inside a trunk drawn at 62 mm, so every one would be hidden. It was kept
+  ;; because "the geometry is right and computing it costs nothing".
+  ;;
+  ;; It was not right. `spine/level-compression` took a posture on 2026-09-07 and
+  ;; this call still passed the old four arguments; shadow-cljs calls an arity
+  ;; mismatch a warning, so the build succeeded, and nothing in the suite called
+  ;; the function — its only mention anywhere was a comment asserting it worked.
+  ;; Code nothing calls has no correctness, only a claim about it. This is the
+  ;; evidence for the claim.
+  (let [st core/initial-state
+        b (core/body-of st)
+        pd (pose/solve-pose b (:posture st))
+        {:keys [tensions]} (core/solved st)
+        draws (scene/disc-draws pd b (:posture st) tensions)]
+    (is (= (count spine/levels) (count draws))
+        (str "one draw per level: " (count spine/levels) " levels, " (count draws) " draws"))
+    (doseq [d draws]
+      (is (number? (:stress-mpa d)) (str (:label d) ": no stress"))
+      (is (pos? (:radius-m d)) (str (:label d) ": radius " (:radius-m d)))
+      (is (= 3 (count (:translation (:transform d)))) (str (:label d) ": bad translation")))
+    ;; and the radii really differ by level — a constant would mean the disc areas
+    ;; never reached the geometry
+    (is (< 1 (count (distinct (map :radius-m draws))))
+        (str "every disc has the same radius: " (pr-str (distinct (map :radius-m draws)))))))
