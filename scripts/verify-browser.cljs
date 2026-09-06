@@ -87,7 +87,32 @@
   (reduce (fn [acc t] (p/then acc (fn [_] (t)))) (p/resolved nil) thunks))
 
 (defn- checks [page]
-  [;; 1. mounted
+  [;; 0. the page under test is the build in `public/`, and not somebody else's.
+   ;;
+   ;; This machine runs many agent sessions at once and they collide on ports. It
+   ;; has now happened twice: once a check failed because another session's server
+   ;; held the port, and once — measured 2026-09-07 — a `python3 -m http.server`
+   ;; silently failed to bind and every subsequent check ran against a stranger's
+   ;; three-line test fixture, reporting "the app mounted" as a failure of THIS
+   ;; app. A `curl -o /dev/null -w '%{http_code}'` returns 200 from the wrong
+   ;; server exactly as readily as from the right one.
+   ;;
+   ;; Skipped for a remote URL, where there is no local build to compare against —
+   ;; and SAID to be skipped, so a skip cannot read as a pass.
+   (fn []
+     (if-not (str/starts-with? root-url "http://localhost")
+       (do (println "  SKIP the served page is this build — remote URL, nothing local to compare")
+           nil)
+       (p/let [served (.evaluate page "document.documentElement.outerHTML.length")]
+         (let [local (try (.-length (fs/readFileSync "public/index.html" "utf8"))
+                          (catch :default _ nil))]
+           (check! "the served page is the build in public/"
+                   (and local served (< (Math/abs (- local served)) (* 0.2 local)))
+                   (str "public/index.html is " local " bytes and the page served "
+                        served " — the port is probably serving another session"))))))
+
+
+   ;; 1. mounted
    (fn []
      (p/let [t (text-of page "h1")]
        (check! "the app mounted and rendered its heading" (str/includes? (or t "") "suji") t)))
@@ -442,7 +467,7 @@
         ;; suite grows stops being a floor. One below the current count, so that a
         ;; single check silently failing to register is caught while an
         ;; intentional removal is a deliberate edit here.
-        (< (count @results) 29)
+        (< (count @results) 30)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)
