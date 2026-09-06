@@ -34,6 +34,8 @@
             ;; the SAME sources the browser is running, so the bone-mesh check
             ;; below can be a disagreement between two runtimes over one .cljc
             ;; rather than the page grading its own homework
+            [kami.app-suji.core :as core]
+            [kami.app-suji.coverage :as coverage]
             [kami.app-suji.scene :as scene]
             [kami.webgpu.geometry :as geom]
             [promesa.core :as p]))
@@ -99,17 +101,35 @@
    ;;
    ;; Skipped for a remote URL, where there is no local build to compare against —
    ;; and SAID to be skipped, so a skip cannot read as a pass.
+   ;;
+   ;; ⚠ IT COMPARED SIZES UNTIL 2026-09-08 and that was the wrong quantity. The
+   ;; served document is the file plus whatever the app rendered into it, so the
+   ;; two agree only while the page renders about as much markup as the shell
+   ;; contains. Adding the coupled-solve tables put the served DOM 25% over the
+   ;; file and the check failed — correctly by its own rule, and about nothing.
+   ;; A size window cannot separate `another server answered` from `this app drew
+   ;; more`, so it compares IDENTITY instead: the title and the bundle path this
+   ;; build wrote, both read out of `public/index.html` rather than restated here.
    (fn []
      (if-not (str/starts-with? root-url "http://localhost")
        (do (println "  SKIP the served page is this build — remote URL, nothing local to compare")
            nil)
-       (p/let [served (.evaluate page "document.documentElement.outerHTML.length")]
-         (let [local (try (.-length (fs/readFileSync "public/index.html" "utf8"))
-                          (catch :default _ nil))]
+       (p/let [served-title (.evaluate page "document.title")
+               served-src (.evaluate page
+                           "Array.from(document.querySelectorAll('script[src]'))
+                              .map(e => e.getAttribute('src')).join(' ')")]
+         (let [local (try (fs/readFileSync "public/index.html" "utf8")
+                          (catch :default _ nil))
+               local-title (second (re-find #"<title>([^<]*)</title>" (or local "")))
+               local-src (second (re-find #"<script[^>]*src=\"([^\"]+)\"" (or local "")))]
            (check! "the served page is the build in public/"
-                   (and local served (< (Math/abs (- local served)) (* 0.2 local)))
-                   (str "public/index.html is " local " bytes and the page served "
-                        served " — the port is probably serving another session"))))))
+                   (and local-title local-src
+                        (= local-title served-title)
+                        (str/includes? (or served-src "") local-src))
+                   (str "public/index.html is titled " (pr-str local-title)
+                        " and loads " (pr-str local-src) "; the page served "
+                        (pr-str served-title) " loading " (pr-str served-src)
+                        " — the port is probably serving another session"))))))
 
 
    ;; 1. mounted
@@ -244,6 +264,99 @@
        (check! "and the reason is given, not just a dash"
                (str/includes? (or body "") "力を計算していない")
                "expected the refusal to state why")))
+
+   ;; 5a2. the dose layer says how long, not only how bad.
+   ;;
+   ;; `strain` computes a holding time, whether that time is extrapolated, and the
+   ;; raw dose the four-band index is a saturating transform of. The page showed
+   ;; the band and nothing else, which cannot separate `9 %MVC, unbounded holding
+   ;; time, high 120-minute dose` from a muscle in trouble now. Read the HEADINGS:
+   ;; the paragraph above the table uses the same words.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             heads (.evaluate page
+                    "Array.from(document.querySelectorAll('th')).map(e => e.innerText.trim())")
+             marked (.evaluate page
+                     "Array.from(document.querySelectorAll('tbody td'))
+                        .map(e => e.innerText.trim())
+                        .filter(t => t.includes('当てはめ範囲') || t.startsWith('∞')).length")]
+       (let [heads (vec heads)]
+         (check! "the muscle table states a holding time and its caveat"
+                 (and (some #{"保持できる時間"} heads) (some #{"当てはめ範囲"} heads))
+                 (str "headings were " heads))
+         (check! "and the raw dose beside the band the index saturates into"
+                 (some #{"ドーズ"} heads)
+                 (str "headings were " heads))
+         (check! "every holding time carries whether it was extrapolated"
+                 (< 0 marked)
+                 (str "cells qualifying a holding time: " marked)))))
+
+   ;; 5b. the coupled solve reports itself, and the report is a table rather than a
+   ;; sentence about one.
+   ;;
+   ;; `recruit/solve` satisfies several equilibria at once and says so: which
+   ;; muscles it solved together, whether it converged, and the equilibrium error
+   ;; left at each joint. A coverage census of this app measured every one of those
+   ;; as computed and not shown, at the same moment the forces themselves moved a
+   ;; great deal — 22.1 to 39.2 %MVC at the cervical extensors. Read the COLUMN
+   ;; HEADINGS: the paragraph above the table explains what a residual is and uses
+   ;; the same words, so a body-text search would go on passing after the table was
+   ;; deleted, which is the failure this repo has recorded three times.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             _ (.waitForTimeout page 300)
+             heads (.evaluate page
+                    "Array.from(document.querySelectorAll('th')).map(e => e.innerText.trim())")
+             rows (.evaluate page
+                   "(() => {
+                      const want = ['関節','連立の残差','どの式にも入っていないモーメント'];
+                      for (const t of document.querySelectorAll('table')) {
+                        const h = Array.from(t.querySelectorAll('th')).map(e => e.innerText.trim());
+                        if (want.every(w => h.includes(w)))
+                          return Array.from(t.querySelectorAll('tbody tr'))
+                                      .map(r => Array.from(r.querySelectorAll('td'))
+                                                     .map(c => c.innerText.trim()));
+                      }
+                      return null;
+                    })()")]
+       (let [heads (vec heads)
+             rows (some-> rows js->clj)]
+         (check! "the coupled solve states which joints it satisfied together"
+                 (some #{"同時に満たした関節"} heads)
+                 (str "headings were " heads))
+         (check! "and reports the equilibrium error it left at each joint"
+                 (some #{"連立の残差"} heads)
+                 (str "headings were " heads))
+         (check! "the residual table has a row per joint, all columns filled"
+                 (and (seq rows) (<= 5 (count rows)) (every? #(= 3 (count %)) rows))
+                 (str "residual rows: " (pr-str rows)))
+         (check! "and the residual is a number, not a dash for every joint"
+                 (some (fn [r] (re-find #"[1-9]" (nth r 1 ""))) rows)
+                 (str "residual column: " (pr-str (map #(nth % 1 "") rows)))))))
+
+   ;; 5c. a muscle the optimum switched off is not drawn as a lightly loaded one.
+   ;;
+   ;; An inactive muscle is ANSWERED — force zero, %MVC zero — which is a different
+   ;; statement from refused, and `band-for 0.0` is `low`. Eleven muscles at the
+   ;; default posture were being banded as lightly loaded. Read the CELL: the
+   ;; legend, the notes and the coupled table all contain the word, so page text
+   ;; cannot tell a banded row from an explanation of what banding means.
+   (fn []
+     (p/let [cells (.evaluate page
+                    "Array.from(document.querySelectorAll('tbody tr'))
+                       .filter(r => Array.from(r.querySelectorAll('td'))
+                                         .some(c => c.innerText.trim() === '無活動（最適解が切っている）'))
+                       .map(r => r.querySelector('td').innerText.trim())")
+             body (.evaluate page "document.body.innerText")]
+       (let [cells (vec (js->clj cells))]
+         (check! "muscles the coupled optimum switched off are banded as inactive"
+                 (seq cells)
+                 "no muscle row's band cell reads 無活動（最適解が切っている）")
+         (check! "and their reason travels with them"
+                 (str/includes? (or body "") "最適解が切っている（力は 0 N")
+                 "expected the inactive note, which the page used to compute and drop"))))
 
    ;; 4c. the picture shows the whole body, not as much of it as fits.
    ;;
@@ -414,6 +527,64 @@
                _ (.waitForSelector page "#suji-canvas")]
          nil)))
 
+   ;; 8b. the coverage census on the method view is computed, and it is the SAME
+   ;; computation this checker can do for itself.
+   ;;
+   ;; The three numbers are how much of what the model produces reaches a reader.
+   ;; A number like that written into the page as a literal is worse than absent:
+   ;; it looks measured. So the page is put back to exactly the state the checker
+   ;; can reproduce — every slider and both body sliders set to `initial-state`'s
+   ;; values — and then the checker runs `coverage/census` on its own copy of the
+   ;; same `.cljc` and compares. This is the disagreement-between-two-runtimes
+   ;; shape the bone-mesh check uses; the page is not grading its own homework.
+   ;;
+   ;; Read out of the table by ROW LABEL, not by searching the page: the paragraph
+   ;; above it names all three states, and a text search would keep passing after
+   ;; the table was gone.
+   (fn []
+     (p/let [_ (.click page "a[href='#/']")
+             _ (.waitForSelector page "#suji-canvas")
+             _ (.evaluate page
+                "(() => {
+                   const set = (id, v) => { const el = document.getElementById(id);
+                     if (!el) return; el.value = v;
+                     el.dispatchEvent(new Event('input', {bubbles: true})); };
+                   set('body-total-mass-kg', 70);
+                   set('body-stature-m', 1.7);
+                   set('session-minutes', 120);
+                 })()")
+             _ (.waitForTimeout page 200)
+             _ (.click page "[data-preset='laptop-on-lap']")
+             _ (.waitForTimeout page 400)
+             _ (.click page "a[href='#/method']")
+             _ (.waitForFunction page
+                "() => Array.from(document.querySelectorAll('td')).some(e => e.innerText.trim() === '出している')"
+                #js {} #js {:timeout 8000})
+             _ (.waitForTimeout page 200)
+             cells (.evaluate page
+                    "Array.from(document.querySelectorAll('tbody tr'))
+                       .map(r => Array.from(r.querySelectorAll('td')).map(c => c.innerText.trim()))
+                       .filter(r => r.length === 3)")]
+       (let [rows (js->clj cells)
+             by-label (into {} (for [[a b] rows] [a b]))
+             st core/initial-state
+             mine (:counts (coverage/census (core/body-of st) (:posture st) (core/solved st)))]
+         (check! "the method view carries a coverage census"
+                 (and (get by-label "出している") (get by-label "出していない")
+                      (get by-label "訊いていない"))
+                 (str "rows read: " (pr-str rows)))
+         (check! "and its three numbers are the ones this checker computes independently"
+                 (= [(str (:shown mine)) (str (:computed-not-shown mine))
+                     (str (:not-computed mine))]
+                    [(get by-label "出している") (get by-label "出していない")
+                     (get by-label "訊いていない")])
+                 (str "page says "
+                      (pr-str (mapv by-label ["出している" "出していない" "訊いていない"]))
+                      " and this checker computes " (pr-str mine)))
+         (check! "the census reports something hidden, so it is not answering by default"
+                 (pos? (:computed-not-shown mine))
+                 (str "counts " (pr-str mine))))))
+
    ;; 9. it is one page: crossing a view must not load a document
    (fn []
      (p/let [_ (.evaluate page "window.__sujiSameDocument = 'yes'")
@@ -463,11 +634,12 @@
       ;; distinguishable from a check that passed.
       (cond
         ;; 16 -> 22 when the bone-mesh checks landed, 22 -> 27 with the
-        ;; lower-limb preset checks: an evidence floor that does not move when the
-        ;; suite grows stops being a floor. One below the current count, so that a
-        ;; single check silently failing to register is caught while an
-        ;; intentional removal is a deliberate edit here.
-        (< (count @results) 30)
+        ;; lower-limb preset checks, 31 -> 43 with the coupled-solve report, the
+        ;; dose columns and the coverage census: an evidence floor that does not move when the suite
+        ;; grows stops being a floor. One below the current count, so that a single
+        ;; check silently failing to register is caught while an intentional
+        ;; removal is a deliberate edit here.
+        (< (count @results) 42)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

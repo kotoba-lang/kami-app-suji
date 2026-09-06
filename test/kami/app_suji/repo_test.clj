@@ -105,7 +105,24 @@
               "a moment arm that changes with posture"]
              ["骨の形状は円柱"
               (not-any? #{:cylinder} (map :geo (:bones (:scene (core/solved core/initial-state)))))
-              "bones drawn as anatomical shapes"]]]
+              "bones drawn as anatomical shapes"]
+             ;; the sixth, added 2026-09-08 the day it went false. The README said
+             ;; the closed form takes one equality constraint and a two-joint
+             ;; muscle's other joint is reported rather than satisfied; `suji`
+             ;; landed `recruit/solve`, which satisfies several at once. The claim
+             ;; is probed by the FACT — a solved group whose members carry a
+             ;; converged flag and more than one joint — rather than by the
+             ;; function's existence, so a rename upstream does not make this pass
+             ;; for the wrong reason.
+             ["閉形式は等式制約を 1 本しか取らない"
+              (let [ts (:tensions (core/solved core/initial-state))]
+                (and (some #(< 1 (count (:coupled-joints %))) ts)
+                     (some :coupled-converged? ts)))
+              "a solve that satisfies more than one equilibrium at once"]
+             ["2 関節筋の他関節モーメントは計算して報告するだけ"
+              (let [ts (:tensions (core/solved core/initial-state))]
+                (some #(and (:crosses-joint %) (:secondary-fed? %)) ts))
+              "two-joint muscles whose second joint IS in the solved equilibrium"]]]
       (when present?
         (is (not (str/includes? gaps phrase))
             (str "the README says `" phrase "` and the model has " what))))))
