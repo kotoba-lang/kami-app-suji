@@ -169,9 +169,11 @@
         "「出せる力」はその筋が" [:strong "この姿勢の長さで"]
         "出せる力（PCSA × 比張力 × Hill の力‑長さ係数）。%MVC の分母はこれであって"
         "ピーク値ではない —— 筋はどの長さでも最大を出せるわけではなく、"
-        "長さを決めるのは姿勢だから。⚠ は最大随意収縮を超えていることを示す。"]
+        "長さを決めるのは姿勢だから。⚠ は最大随意収縮を超えていることを示す。"
+        "張力の括弧内は（能動 / 受動）—— 受動は伸ばされた組織自身が出す力で、"
+        "活動を要さず代謝コストも無い。"]
        (dds/table
-        {:headers ["筋" "モーメントアーム" "張力" "出せる力" "%MVC" "帯"
+        {:headers ["筋" "モーメントアーム" "張力（能動/受動）" "出せる力" "%MVC" "帯"
                    (str (int (:session-minutes state)) "分後")]
          :rows (mapv (fn [t st]
                        (if (:refused t)
@@ -182,7 +184,12 @@
                           (coeff-label t) "—" "—" "適用範囲外" "—" "—"]
                          [(str/replace (:name t) "_" " ")
                           (coeff-label t)
-                          (str (math/fmt-fixed (:force-n t) 0) " N")
+                          ;; active and passive shown apart: one is asked for and
+                          ;; costs something, the other is the tissue and does not
+                          (str (math/fmt-fixed (:force-n t) 0) " N"
+                               (when (and (:passive-n t) (> (:passive-n t) 0.5))
+                                 (str " (" (math/fmt-fixed (:active-n t) 0)
+                                      " / " (math/fmt-fixed (:passive-n t) 0) ")")))
                           ;; the denominator of the %MVC beside it: what this
                           ;; muscle can produce AT THIS LENGTH, not its peak
                           (str (math/fmt-fixed (:f-max-n t) 0) " N")
