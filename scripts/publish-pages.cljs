@@ -2,16 +2,25 @@
   "Publish `public/` to GitHub Pages **without GitHub Actions**.
 
   ── why this exists ─────────────────────────────────────────────────────────
-  `.github/workflows/pages.yml` built this site until 2026-08-04. Actions are
-  now disabled repo-wide (ADR-2607300900: CI/CD is the murakumo fleet, not
-  GitHub), so the workflow cannot run — and because it cannot run, nothing ever
-  failed. the sibling app `kami-app-daw` simply kept serving the last
-  artifact it had built: the pre-DADS liquid-glass page, long after the app moved
-  onto jp-go-dds. A publish path that stops silently is worse than none, so this
-  is the publish path now.
+  `.github/workflows/pages.yml` built this site until 2026-08-04. The publish path
+  is this script now, because CI/CD in this workspace is the murakumo fleet and not
+  GitHub (ADR-2607300900), and because a publish path that stops SILENTLY is worse
+  than none: the sibling app `kami-app-daw` kept serving the pre-DADS liquid-glass
+  page for weeks after it moved onto jp-go-dds, and nothing failed, because nothing
+  ran.
 
-  The workflow file itself is still in the tree, and inert. Deleting it needs the
-  `workflow` OAuth scope, which this workspace's token does not have.
+  ⚠ THIS DOCSTRING SAID `Actions are now disabled repo-wide`, AND THAT IS FALSE
+  FOR THIS REPO. Measured 2026-09-09:
+  `gh api repos/kotoba-lang/kami-app-suji/actions/permissions` returns
+  `{"enabled":true,"allowed_actions":"all"}`. The sweep that disabled Actions
+  elsewhere did not reach here, and the workspace rule is explicit that the state
+  is not knowable from the tree — a `.github/` directory says nothing either way,
+  and a request that could not be read must not be recorded as `disabled`. So ASK
+  before repeating it; do not infer it from this file, and do not add a workflow to
+  make it moot.
+
+  The workflow file itself is still in the tree. Deleting it needs the `workflow`
+  OAuth scope, which this workspace's token does not have.
 
   ── what it does ────────────────────────────────────────────────────────────
   Commits the built `public/` as the *root* tree of `refs/heads/gh-pages` and
@@ -118,10 +127,13 @@
           parent (some->> (sh? "git" ["ls-remote" "origin" (str "refs/heads/" branch)])
                           not-empty
                           (re-find #"^\S+"))
+          ;; WHAT WAS PUBLISHED AND FROM WHERE, and nothing else. This template
+          ;; used to assert that Actions were disabled repo-wide, which is false
+          ;; for this repo (see the docstring) — a reason stamped into every
+          ;; publish is a claim repeated at a rate nobody is checking.
           msg (str "pages: publish " (subs source 0 12) "\n\n"
-                   "Built public/ served straight off " branch ". GitHub Actions are\n"
-                   "disabled repo-wide (ADR-2607300900), which is why the previous\n"
-                   "artifact went stale instead of failing.\n")
+                   "Built public/ (" (str/join ", " required) ") served straight off "
+                   branch ", from source commit " source ".\n")
           commit (sh "git" (concat ["--git-dir" git-dir "commit-tree" tree]
                                    (when parent ["-p" parent])
                                    ["-m" msg]))
