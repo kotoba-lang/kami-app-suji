@@ -273,18 +273,24 @@
       [:p {:class "suji-note"}
        "各レベルに載る重量と、そのレベルを跨ぐ筋張力の軸成分の和を、そのレベルの"
        "椎間板断面積で割ったもの。"
-       [:strong "筋の項が支配的である"]
+       [:strong "組織の項が支配的である"]
        " —— 伸筋は短いモーメントアームで働くので、小さな外部モーメントを保つのに"
-       "大きな力が要り、その力は全部が関節を圧迫する。"]
+       "大きな力が要り、その力は全部が関節を圧迫する。"
+       "その担い手は姿勢で入れ替わるので、筋と靭帯を分けて示す。"]
       (dds/table
-       {:headers ["レベル" "部位" "体重ぶん" "筋ぶん" "合計" "断面積" "圧縮応力"]
+       {:headers ["レベル" "部位" "体重ぶん" "筋ぶん" "靭帯ぶん" "合計" "断面積" "圧縮応力"]
         :rows (mapv (fn [r] [(:name r) (name (:region r))
                              (str (math/fmt-fixed (:weight-n r) 0) " N")
                              (str (math/fmt-fixed (:muscle-n r) 0) " N")
+                             (str (math/fmt-fixed (:ligament-n r) 0) " N")
                              (str (math/fmt-fixed (:force-n r) 0) " N")
                              (str (math/fmt-fixed (:disc-area-cm2 r) 1) " cm²")
                              (str (math/fmt-fixed (:stress-mpa r) 2) " MPa")])
                     rows)})
+      [:p {:class "suji-note"}
+       "深い体幹前屈では「筋ぶん」が縮み「靭帯ぶん」が支配的になる（屈曲弛緩）。"
+       "そのとき脊椎を圧迫しているのは筋ではなく後方靭帯系であり、"
+       [:strong "何を変えれば減るのかが違う"] "。"]
       [:p {:class "suji-note"}
        [:strong "⚠ この表は検証されていない。"]
        "頸椎については、検証済みの集中定数モデル（Hansraj 2014）が "
