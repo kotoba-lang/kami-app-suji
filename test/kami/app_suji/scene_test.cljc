@@ -8,6 +8,7 @@
   (:require [clojure.set]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
+            [suji.methods.attachment :as attachment]
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
@@ -406,3 +407,56 @@
     ;; and the antagonist colour specifically, since it is the one that was missing
     (is (pos? (get @seen scene/antagonist-rgb 0))
         "no antagonist draw in the sweep, so this does not cover the case it was written for")))
+
+(deftest the-skull-is-coloured-by-both-sides-of-its-joint
+  ;; suji 1af4590 gave the atlanto-occipital joint FLEXORS, so the skull now has
+  ;; muscles on both sides of the joint it hangs from. `joint-muscles` has to name
+  ;; both or the flexors are computed, tabled and invisible — the guard test above
+  ;; makes that unshippable, and this one says WHICH side each is on, so a future
+  ;; edit that drops the flexors and keeps the count fails here.
+  (let [head-groups (get scene/joint-muscles "head")]
+    (is (contains? head-groups "longus_capitis"))
+    (is (contains? head-groups "rectus_capitis_anterior"))
+    (is (contains? head-groups "rectus_capitis_posterior_major"))
+    ;; and the flexors are the ones whose moment arm about that joint is negative,
+    ;; read off suji's geometry rather than off their names
+    (let [pd (pose/solve-pose body (:posture core/initial-state))
+          arm #(attachment/moment-arm pd (:stature-m body) (attachment/instance %)
+                                      (get-in pd [:joints :atlanto-occipital]))]
+      (is (neg? (arm "longus_capitis")))
+      (is (neg? (arm "rectus_capitis_anterior")))
+      (is (pos? (arm "rectus_capitis_posterior_major"))))))
+
+(deftest the-upper-cervical-flexors-carry-nothing-this-app-can-reach
+  ;; THE RESULT, RECORDED RATHER THAN FIXED. The flexors take force exactly when
+  ;; the skull's centre of mass is behind the occipital condyles — a head tipped
+  ;; BACK. This app's head-flexion and trunk-flexion sliders both start at 0, so
+  ;; the head's tilt from vertical is non-negative everywhere in the reachable
+  ;; space and the flexors are asked for nothing in all of it.
+  ;;
+  ;; That is a statement about the SLIDERS, not about the muscles, and widening a
+  ;; slider to make a newly added muscle carry something would be arranging the
+  ;; evidence. So the fact is pinned here instead: if the head-flexion slider ever
+  ;; goes negative — for a headrest or a look-up posture, which are real things a
+  ;; workstation model might want — this test fails and the person changing it has
+  ;; to say so.
+  (let [head (first (filter #(= [:posture :head-flexion-deg] (:path %)) core/controls))
+        trunk (first (filter #(= [:posture :trunk-flexion-deg] (:path %)) core/controls))]
+    (is (= 0 (:min head))
+        (str "the head-flexion slider starts at 0, so this app cannot reach a head "
+             "tipped back: " head))
+    (is (= 0 (:min trunk)) (str "and neither can the trunk: " trunk))
+    ;; the corners of the reachable box, plus the middle, all give the flexors
+    ;; nothing — and NOT a refusal, which would mean the model could not answer
+    (doseq [h [(:min head) 30 (:max head)]
+            t [(:min trunk) 30 (:max trunk)]]
+      (let [st (-> core/initial-state
+                   (assoc-in [:posture :head-flexion-deg] (double h))
+                   (assoc-in [:posture :trunk-flexion-deg] (double t)))
+            by (into {} (map (juxt :name identity)) (:tensions (core/solved st)))]
+        (doseq [m ["longus_capitis" "rectus_capitis_anterior"]]
+          (is (nil? (:refused (by m)))
+              (str m " at head " h " trunk " t " must not be refused: " (by m)))
+          (is (math/nearly= 0.0 (or (:active-n (by m)) 0.0) 1e-12)
+              (str m " at head " h " trunk " t
+                   " is asked for nothing anywhere this app can reach: " (by m))))))))
