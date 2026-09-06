@@ -614,9 +614,16 @@
 
 (defn joint-draws
   "A small sphere at each anatomical landmark, so the chain reads as articulated
-  rather than as a stack of separate rods."
+  rather than as a stack of separate rods.
+
+  ⚠ THE LABEL IS THE WHOLE KEYWORD, not its name. `(name :hip/left)` is `left`,
+  so eight of the twenty-two landmarks in a bilateral body came out labelled
+  `left` and eight `right` — the joint, which is half the identity, was thrown
+  away. `core/joint-name` exists for exactly this reason one layer up; the same
+  reasoning had not reached here, and it stopped mattering only because nothing
+  read these labels until the browser check for the T12/L1 landmark did."
   [pose-data]
-  (mapv (fn [[k p]] {:label (name k)
+  (mapv (fn [[k p]] {:label (if (keyword? k) (subs (str k) 1) (str k))
                      :geo :sphere
                      :color [0.30 0.32 0.36]
                      :transform {:translation p :scale [1.0 1.0 1.0]}})
