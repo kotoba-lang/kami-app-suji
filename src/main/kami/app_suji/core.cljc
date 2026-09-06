@@ -20,6 +20,7 @@
             [suji.methods.posture :as posture]
             [suji.methods.spine :as spine]
             [suji.methods.segment :as segment]
+            [suji.methods.attachment :as attachment]
             [suji.methods.strain :as strain]))
 
 ;; --- state -------------------------------------------------------------------
@@ -393,34 +394,95 @@
          "そのため " (str/join "・" (map #(str (:after %) " → " (:at %)) steps))
          " で筋の寄与が段差状に 0 へ落ちる —— これはモデルの人工物であって身体ではない。"]))]))
 
-(defn method-view [_state]
-  [:div {:class "dds-ext-container"}
-   (dds/section {}
-    (dds/heading 2 "計算の中身")
-    [:p "姿勢（関節角）→ 前方運動学で 3 次元に配置 → 静的逆動力学（RNEA の重力項）→ "
-        "関節モーメント → Hill 型モーメントアームで筋張力と %MVC → "
-        "Rohmert の等尺性持久モデルで作業時間ぶんの強張り指数。"]
-    (dds/heading 3 "何が検証済みで、何がそうでないか")
-    [:ul
-     [:li [:strong "検証済み"] "：頸椎の圧縮荷重は Hansraj (2014) の前方頭位の表を再現する"
-          "（0°→1 倍 … 60°→5 倍、10% 以内）。"]
-     [:li [:strong "力学的だが例示的"] "：筋の %MVC と Rohmert の強張り指数。"
-          "PCSA とモーメントアームは代表値であって個人の測定値ではない（G7）。"]
-     [:li [:strong "導出値"] "：モーメントアームは筋の起始・停止から幾何で計算する"
-          "（定数表ではない）。中立姿勢では従来の定数を 0.2% 以内で再現し、"
-          "そこから外れた分だけが幾何由来である。"]
-     [:li [:strong "拒否する"] "：直線モデルには巻き付き面が無いので、作用線が関節を"
-          "通る近傍では必要張力が発散する。そこではモデルが数値を返さない。"]
-     [:li [:strong "未実装"] "：解剖学的メッシュ、腱の巻き付き面、椎間板の個別モデル。"
-          "前額面（外転・側屈）と頭部回旋は入力できるが、"
-          "それらに対する筋の追加（斜角筋・広背筋など）はまだ無い。"]]
-    (dds/heading 3 "境界")
-    [:p "力学量だけを返す。診断・処方・治療は表現できない（医師法 §17 / G1）。"
-        "計測ハードウェアを持たず、入力は姿勢のパラメータである（薬機法 / G2）。"]
-    [:p {:class "suji-note"}
-     "物理は " [:a {:href "https://github.com/cloud-itonami/suji"} "cloud-itonami/suji"]
-     "、描画は " [:a {:href "https://github.com/kotoba-lang/webgpu"} "kotoba-lang/webgpu"]
-     "（WebGPU、WebGL 2.0 フォールバック）。"])])
+(defn method-view
+  "What this model does, and what it can and cannot answer for.
+
+  ⚠ THE COUNTS AND THE LISTS ARE COMPUTED, NOT WRITTEN. This page's whole job is
+  to say what is true, and on 2026-09-07 four of its claims were false:
+
+    - it called the dose layer `Rohmert の等尺性持久モデル`. It is not Rohmert's
+      equation — `strain/model-form` reports `:family :power` with
+      `:provenance :could-not-obtain`, a plain power law with a bolted-on floor.
+    - it listed `腱の巻き付き面` as unimplemented. Nineteen muscle groups declare
+      one, and the middle deltoid's was the subject of a whole wave.
+    - it listed `椎間板の個別モデル` as unimplemented. Ten levels exist.
+    - it said the frontal plane had no muscles yet. There are five.
+
+  Prose about a model goes stale the moment the model moves, and this model moves
+  about once an hour. Anything derivable is derived, so the page cannot make a
+  false claim about a count without the count being false."
+  [state]
+  (let [{:keys [tensions loads]} (solved state)
+        body (body-of state)
+        wrapped (count (filter :wrap (vals attachment/muscles)))
+        frontal (sort (map :name (filter #(= :frontal (:axis %)) (vals attachment/muscles))))
+        cerv (spine/cervical-cross-check body (:posture state) tensions (:cervical loads))
+        lumbar (spine/lumbar-cross-check)
+        dose strain/model-form]
+    [:div {:class "dds-ext-container"}
+     (dds/section {}
+      (dds/heading 2 "計算の中身")
+      [:p "姿勢（関節角）→ 前方運動学で 3 次元に配置 → 静的逆動力学（RNEA の重力項）→ "
+          "関節モーメント → 起始・停止から幾何で出したモーメントアームで筋張力と %MVC → "
+          "べき則の等尺性持久モデルで作業時間ぶんのドーズ。"]
+
+      (dds/heading 3 "3 つの相互検証と、その向き")
+      [:p {:class "suji-note"}
+       "検証された量は 1 つだけで、残り 2 つは" [:strong "食い違いを報告する"] "。"
+       "比が 1 に近づくことは検証ではない —— 近づいた原因が無関係な欠陥の修正である"
+       "ことが、このリポジトリでは 2 回起きている。"]
+      (dds/table
+       {:headers ["対象" "文献" "モデル" "比" "どちらが検証済みか"]
+        :rows [["頸椎の圧縮荷重（集中定数）" "Hansraj 2014"
+                "0°→1 倍 … 60°→5 倍を 10% 以内で再現" "—"
+                [:strong "モデル側が検証済み"]]
+               ["頸椎のレベル別プロファイル" "上の集中定数モデル"
+                (str (math/fmt-fixed (:level-force-n cerv) 0) " N")
+                (math/fmt-fixed (:ratio cerv) 3)
+                (str "検証済みは " (name (:validated cerv)))]
+               ["L4/L5 の圧縮（座位）" "Wilke 1999 in vivo 椎間板内圧"
+                (str (math/fmt-fixed (:model-force-n lumbar) 0) " N vs "
+                     (math/fmt-fixed (:reference-force-n lumbar) 0) " N")
+                (math/fmt-fixed (:ratio lumbar) 3)
+                (if (:within-reference-spread? lumbar)
+                  "基準の幅の内"
+                  [:strong "基準の幅の外（モデルが低い）"])]]})
+
+      (dds/heading 3 "実装されているもの（数はモデルから数えている）")
+      [:ul
+       [:li "椎間板レベル：" [:strong (str (count spine/levels))]
+            "（" (str/join "・" (map :name spine/levels)) "）"]
+       [:li "巻き付き面を持つ筋群：" [:strong (str wrapped)]
+            " —— 直線モデルには巻き付き面が無いので、作用線が関節を通る近傍で"
+            "必要張力が発散する。面がある筋はそこで床を持つ。"]
+       [:li "前額面（外転・側屈）の筋：" [:strong (str (count frontal))]
+            "（" (str/join "・" frontal) "）"]
+       [:li "モーメントアームは筋の起始・停止から幾何で計算する（定数表ではない）。"]
+       [:li "骨は解剖学的メッシュで描く（円柱ではない）。筋は線のまま —— "
+            "モデルが断面を持たないので、太さを描けばそれは装飾である。"]]
+
+      (dds/heading 3 "持久モデルの出自")
+      [:p {:class "suji-note"}
+       "族は " [:strong (name (:family dose))] "、出自は "
+       [:strong (name (:provenance dose))] "。"
+       (when (= :could-not-obtain (:provenance dose))
+         (str "係数と一致する公表された当てはめを見つけられなかった、という意味である —— "
+              "「まだ探していない」ではなく、探して見つからなかった。"))]
+
+      (dds/heading 3 "まだ無いもの")
+      [:ul
+       [:li "後頭下筋群。環椎後頭関節が無く頭頸部が 1 つの剛体なので、両端が同じ分節に"
+            "乗る —— 足りないのは関節であって、付着では供給できない。"]
+       [:li "筋の付着は点であって、複数椎骨にまたがる面ではない。"]
+       [:li "PCSA とモーメントアームは代表値であって個人の測定値ではない（G7）。"]]
+
+      (dds/heading 3 "境界")
+      [:p "力学量だけを返す。診断・処方・治療は表現できない（医師法 §17 / G1）。"
+          "計測ハードウェアを持たず、入力は姿勢のパラメータである（薬機法 / G2）。"]
+      [:p {:class "suji-note"}
+       "物理は " [:a {:href "https://github.com/cloud-itonami/suji"} "cloud-itonami/suji"]
+       "、描画は " [:a {:href "https://github.com/kotoba-lang/webgpu"} "kotoba-lang/webgpu"]
+       "（WebGPU、WebGL 2.0 フォールバック）。"])]))
 
 (defn support-note
   "Which regime the numbers on this page came from.

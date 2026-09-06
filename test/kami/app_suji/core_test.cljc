@@ -12,6 +12,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
+            [suji.methods.attachment :as attachment]
             [suji.methods.posture :as posture]
             [suji.methods.spine :as spine]))
 
@@ -294,3 +295,72 @@
       (is (empty? (clojure.set/intersection (named :lumbar) (named :cervical)))
           (str "a muscle crosses both a lumbar and a cervical level: "
                (pr-str (clojure.set/intersection (named :lumbar) (named :cervical))))))))
+
+;; --- the page that says what is true ----------------------------------------
+
+(deftest the-method-page-does-not-call-unimplemented-what-is-implemented
+  ;; On 2026-09-07 this page listed 腱の巻き付き面, 椎間板の個別モデル and the
+  ;; frontal-plane muscles as 未実装, and called the dose layer Rohmert's model.
+  ;; All four were false: 19 muscle groups declare a wrap, 10 disc levels exist,
+  ;; 5 frontal-axis muscles exist, and `strain/model-form` reports :family :power
+  ;; with :provenance :could-not-obtain.
+  ;;
+  ;; Prose about a model goes stale the moment the model moves, and this one moves
+  ;; about once an hour. So the counts on that page are computed — and this test
+  ;; asserts that anything the page still calls absent really is absent.
+  (let [text (flat-text (core/method-view core/initial-state))
+        unimplemented-section (second (str/split text #"まだ無いもの"))]
+    (is (some? unimplemented-section) "the page has no `まだ無いもの` section")
+    ;; things that exist must not be named there
+    (doseq [[label present?]
+            [["巻き付き" (seq (filter :wrap (vals attachment/muscles)))]
+             ["椎間板の個別" (seq spine/levels)]
+             ["前額面の筋" (seq (filter #(= :frontal (:axis %)) (vals attachment/muscles)))]]]
+      (when present?
+        (is (not (str/includes? unimplemented-section label))
+            (str "`" label "` is listed as absent and " (count (vals attachment/muscles))
+                 " muscle groups say otherwise"))))
+    ;; and the dose model is named by what it is, not by what it was called
+    (is (not (str/includes? text "Rohmert"))
+        "the page still calls the dose layer Rohmert's model")))
+
+(deftest the-method-page-counts-agree-with-the-model
+  ;; The counts are computed, so this asserts the computation reaches the page
+  ;; rather than being shadowed by a literal someone typed beside it.
+  ;;
+  ;; ⚠ Asserted inside the LIST ITEM that names each count, not anywhere in the
+  ;; page text. Written the loose way it did not discriminate: replacing the
+  ;; computed ten disc levels with a hard-coded "7" still passed, because "10"
+  ;; occurs in "10% 以内" further up. A bare number searched for in prose finds
+  ;; the wrong number.
+  (let [items (map flat-text (nodes :li (core/method-view core/initial-state)))
+        item-with (fn [label] (first (filter #(str/includes? % label) items)))]
+    (is (seq items) "the page has no list items, so this asserts nothing")
+    (doseq [[label want]
+            [["椎間板レベル" (count spine/levels)]
+             ["巻き付き面を持つ筋群" (count (filter :wrap (vals attachment/muscles)))]
+             ["前額面" (count (filter #(= :frontal (:axis %)) (vals attachment/muscles)))]]]
+      (let [item (item-with label)]
+        (is (some? item) (str "no list item mentions " label))
+        (is (str/includes? (or item "") (str want))
+            (str label ": the model says " want " and the item reads " (pr-str item)))))
+    (doseq [m (map :name (filter #(= :frontal (:axis %)) (vals attachment/muscles)))]
+      (is (str/includes? (or (item-with "前額面") "") m)
+          (str m " acts in the frontal plane and is not named in that item")))))
+
+(deftest the-method-page-states-which-side-of-each-cross-check-is-validated
+  ;; Three cross-checks, one validated quantity. A page that showed three ratios
+  ;; without saying which direction validation runs in would invite the reader to
+  ;; treat a ratio near 1 as agreement — which this repo has twice recorded is not
+  ;; what it means.
+  (let [text (flat-text (core/method-view core/initial-state))]
+    (is (str/includes? text "Hansraj"))
+    (is (str/includes? text "Wilke"))
+    (is (str/includes? text "検証ではない")
+        "the page does not say that a ratio near 1 is not a validation")
+    ;; the lumbar model is outside Wilke's spread today; the page must say so
+    (let [l (spine/lumbar-cross-check)]
+      (is (false? (:within-reference-spread? l))
+          "the lumbar model is now inside the reference spread — this test's premise changed")
+      (is (str/includes? text "基準の幅の外")
+          "the page does not report that the lumbar model falls outside the reference"))))
