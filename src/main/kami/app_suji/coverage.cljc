@@ -388,14 +388,36 @@
 
    ;; --- standing against sitting, comparable for the first time ---------------
    :spine.sitting-standing/model-difference-n     {:state :shown}
-   :spine.sitting-standing/reference-difference-n {:state :shown}
+   ;; BY ITS ROW'S LABEL. Probed by digits it passed with the VALUE CELL deleted —
+   ;; measured 2026-09-09 — because 48.0 renders as `48` and a page with three
+   ;; hundred numbers on it has a standalone 48 somewhere. A label token cannot see
+   ;; a value deleted from beside its label either; what it sees is the row going
+   ;; away. That the number is the model's is asserted exactly by
+   ;; `the-standing-comparison-is-the-models-numbers-and-its-caveat`, which does
+   ;; fail on the value deletion. The two together are the claim.
+   :spine.sitting-standing/reference-difference-n {:state :shown
+                                                   :token "立位 − 座位（Wilke）"}
    :spine.sitting-standing/difference-ratio       {:state :shown}
    :spine.sitting-standing/same-direction?        {:state :shown :token "向きは一致する"}
    ;; the model's own sentence about why the agreement in direction proves nothing.
    ;; `:from-value` means the page has to carry it verbatim, so it goes stale the
    ;; day suji rewords it — which is the day it should.
    :spine.sitting-standing/direction-is-not-evidence {:state :shown :token :from-value}
-   :spine.sitting-standing/validated              {:state :shown :token :from-value}
+   ;; ⚠ A TOKEN AND NOT `:from-value`, AND THE REASON IS THIS PAGE ITSELF. The
+   ;; model's word here is `reference`, and `:from-value` searches the WHOLE page
+   ;; text — which on the method view includes the census's own list of about
+   ;; eighty qualified quantity names, several of them containing the substring
+   ;; `reference` (`spine.lumbar-check/reference-force-range-n` among them). So the
+   ;; probe was satisfied by the census reporting that something was hidden.
+   ;; Measured 2026-09-09 by replacing the cell with a Japanese phrase: still
+   ;; `:found`.
+   ;;
+   ;; A token is searched in VALUE-BEARING elements only, and the census's list is
+   ;; a bare string beside a `<strong>` rather than inside one, so it is out of
+   ;; reach. The general lesson is shorter: `:from-value` is only as strong as the
+   ;; needle is unusual, and a single English word on a page that prints namespaced
+   ;; keywords is not unusual.
+   :spine.sitting-standing/validated              {:state :shown :token "reference"}
    :spine.sitting-standing/model-validated?       {:state :shown
                                                    :token "この模型は検証されていない"}
    ;; ⚠ THE TWO CROSS-CHECK MAPS THEMSELVES ARE NOT SHOWN, and saying so is more
