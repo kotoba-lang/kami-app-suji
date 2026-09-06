@@ -10,8 +10,10 @@
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
+            [suji.methods.pose :as pose]
             [suji.methods.posture :as posture]
-            [suji.methods.segment :as segment]))
+            [suji.methods.segment :as segment]
+            [suji.methods.strain :as strain]))
 
 (def ^:private body (segment/build-body 70.0 1.70))
 (defn- for-ws [w] (scene/solve-and-scene body (posture/posture-from-workstation w)))
@@ -44,11 +46,77 @@
         (str "ramp must not go backwards: " (mapv heat pcts)))))
 
 (deftest bands-agree-with-the-legend
+  ;; ⚠ The first assertion here is a TAUTOLOGY and is kept only because deleting it
+  ;; would look like a regression: `:legend` is built by mapping over
+  ;; `load-bands`, so comparing their `:band` values compares a projection with
+  ;; its own source. It cannot fail. The second assertion is the one that carries
+  ;; weight — it checks that each DRAWN bone's band is the band its %MVC falls in,
+  ;; which is a different computation from the legend's.
   (let [{:keys [scene]} (for-ws posture/laptop-on-lap)]
-    (is (= (mapv :band scene/load-bands) (mapv :band (:legend scene))))
+    (is (= (mapv :band scene/load-bands) (mapv :band (:bands (:legend scene)))))
     (doseq [b (remove #(nil? (:mvc-pct %)) (:bones scene))]
       (is (= (:band b) (:band (scene/band-for (:mvc-pct b))))
           (str (:label b) ": the drawn band and the legend's band must agree")))))
+
+(deftest the-legend-says-which-quantity-it-bands
+  ;; The picture and the table share four words — low / moderate / high /
+  ;; very-high — for two different quantities, and this namespace's docstring
+  ;; asserted for months that they were one scale and therefore could not
+  ;; disagree. Measured at a 120-minute session they disagree at almost every
+  ;; load: 9 %MVC is `moderate` in the picture and `very-high` in the table,
+  ;; 5 %MVC is `moderate` and `low`. Both are true — one is an instantaneous load
+  ;; and the other a dose over time — so the legend has to say which it is.
+  (let [{:keys [scene]} (for-ws posture/laptop-on-lap)]
+    (is (= :mvc-pct (:quantity (:legend scene)))
+        (str "the legend does not name its quantity: " (pr-str (:legend scene)))))
+  ;; and the two really are different scales, or this would be pedantry
+  (let [disagreeing
+        (for [m [5.0 9.0 12.0 15.0 20.0 25.0]
+              :let [pic (:band (scene/band-for m))
+                    tbl (strain/stiffness-band
+                         (:stiffness-index (strain/muscle-strain
+                                            {:name "x" :mvc-pct m :task :t} 120.0)))]
+              :when (not= pic tbl)]
+          [m pic tbl])]
+    (is (seq disagreeing)
+        "the picture and the table agree everywhere sampled, so naming the quantity is pedantry")))
+
+(deftest the-camera-frames-the-body-it-draws
+  ;; `bounds` looked `bone-radius-m` up by `:name`, which is the INSTANCE
+  ;; (`upper_arm/left`), while the table is keyed by segment — so every paired
+  ;; limb missed and fell to the 0.03 default. The camera framed a different body
+  ;; from the one drawn, under a docstring saying it frames what is on screen.
+  ;;
+  ;; ⚠ The first version of this test asserted the X axis only, and the break
+  ;; (keying by `:name` again) did NOT fail it: in X the wrong key happens to give
+  ;; a LARGER frame, because the extremal segment there is the hand, drawn at
+  ;; 0.020 against a 0.030 default. The clipping is in Y, where the seated shank
+  ;; is drawn at 0.033 and the frame stopped 3 mm above its surface. A test that
+  ;; checks one axis of a two-axis frame is a test that measured the axis where
+  ;; the bug is invisible.
+  ;;
+  ;; So: every drawn surface point, on both axes, and across postures — because
+  ;; which segment is extremal changes with the posture.
+  (doseq [preset ["laptop-on-lap" "standing-neutral" "deep-squat"]]
+    (let [st (assoc core/initial-state :posture (core/preset-posture preset))
+          body (core/body-of st)
+          p (pose/solve-pose body (:posture st))
+          b (scene/bounds p)]
+      (doseq [{:keys [proximal distal base]} (:segments p)]
+        (let [r (get scene/bone-radius-m base 0.03)]
+          (doseq [[px py _] [proximal distal]]
+            (is (<= (- (:min-x b) 1e-9) (- px r))
+                (str preset " " base ": drawn to x=" (- px r)
+                     " but the frame starts at " (:min-x b)))
+            (is (>= (+ (:max-x b) 1e-9) (+ px r))
+                (str preset " " base ": drawn to x=" (+ px r)
+                     " but the frame ends at " (:max-x b)))
+            (is (<= (- (:min-y b) 1e-9) (- py r))
+                (str preset " " base ": drawn to y=" (- py r)
+                     " but the frame starts at " (:min-y b)))
+            (is (>= (+ (:max-y b) 1e-9) (+ py r))
+                (str preset " " base ": drawn to y=" (+ py r)
+                     " but the frame ends at " (:max-y b)))))))))
 
 (deftest the-picture-uses-the-same-numbers-as-the-table
   ;; the failure this prevents: a view that recomputes its own loads and drifts
