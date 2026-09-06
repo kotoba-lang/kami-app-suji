@@ -12,15 +12,18 @@
             [kami.app-suji.route :as route]
             [kami.app-suji.viewport :as viewport]
             [reagent.core :as r]
-            [reagent.dom.client :as rdomc]
-            [suji.methods.posture :as posture]))
+            [reagent.dom.client :as rdomc]))
 
 (defonce app-state (r/atom core/initial-state))
 (defonce root (atom nil))
 
 (defn- apply-preset [state preset-name]
-  (if-let [w (first (filter #(= preset-name (:name %)) posture/reference-workstations))]
-    (assoc state :posture (core/workstation-posture w))
+  ;; The table lives in `core/presets` — pure and JVM-testable — so the buttons
+  ;; the panel renders and the postures this sets cannot drift apart. This used to
+  ;; search `posture/reference-workstations` directly, which meant a preset added
+  ;; to the panel would render as a button that did nothing when clicked.
+  (if-let [p (core/preset-posture preset-name)]
+    (assoc state :posture p)
     state))
 
 (defn- set-path [state path v]
