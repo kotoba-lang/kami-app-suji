@@ -110,8 +110,8 @@
                 "(() => {
                    const set = (id, v) => { const el = document.getElementById(id);
                      el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); };
-                   set('posture-head-flexion-deg', 60);
                    set('posture-trunk-flexion-deg', 60);
+                   set('posture-trunk-lateral-bend-deg', 40);
                  })()")
              _ (.waitForTimeout page 400)
              body (.evaluate page "document.body.innerText")]
@@ -142,24 +142,52 @@
    ;; 7. the frontal load is reported as a number nobody is carrying
    (fn []
      (p/let [body (.evaluate page "document.body.innerText")]
-       (check! "the unassigned frontal moment is stated as a figure, not as prose"
-               (boolean (re-find #"前額面に\s*[0-9]+\.[0-9]+\s*N·m" (or body "")))
-               "expected an N·m figure for the frontal-plane load")
-       (check! "and the page says no muscle in the model carries it"
-               (str/includes? (or body "") "前額面の筋が無い")
-               "expected the reason the load is unassigned")))
+       (check! "the frontal-plane moment is stated as a figure"
+               (str/includes? (or body "") "前額面のモーメント")
+               "expected the frontal-plane figures")
+       (check! "and the page names the muscles that carry it"
+               (str/includes? (or body "") "腰方形筋")
+               "expected the frontal-plane muscles to be named")))
 
-   ;; 8. it is one page: crossing a view must not load a document
+   ;; 8. the spine view exists and carries the level table with its caveat
+   (fn []
+     (p/let [_ (.click page "a[href='#/spine']")
+             _ (.waitForSelector page "table")
+             body (.evaluate page "document.body.innerText")]
+       (check! "the spine view lists intervertebral levels"
+               (and (str/includes? (or body "") "L5/S1")
+                    (str/includes? (or body "") "C7/T1"))
+               "expected the level names")
+       (check! "with a stress, not only a force"
+               (str/includes? (or body "") "MPa") "expected MPa")
+       (check! "and it says the level profile is not the validated one"
+               (str/includes? (or body "") "検証されていない")
+               "expected the unvalidated caveat next to the table")
+       (p/let [_ (.click page "a[href='#/']")
+               _ (.waitForSelector page "#suji-canvas")]
+         nil)))
+
+   ;; 9. it is one page: crossing a view must not load a document
    (fn []
      (p/let [_ (.evaluate page "window.__sujiSameDocument = 'yes'")
              _ (.click page "a[href='#/compare']")
-             _ (.waitForSelector page "table")
+             ;; wait on something that exists ONLY in this view — the nav link
+             ;; carries the same words, so waiting on the text matches before the
+             ;; view has rendered
+             _ (.waitForFunction page
+                "() => !document.getElementById('suji-canvas') && document.querySelector('table')"
+                #js {} #js {:timeout 8000})
+             ;; innerText needs layout; reading it in the same tick as the commit
+             ;; returns the shell without the view
+             _ (.waitForTimeout page 400)
              marker (.evaluate page "window.__sujiSameDocument || 'LOST'")
-             head (text-of page "h2")]
+             body (.evaluate page "document.body.innerText")]
        (check! "crossing to the comparison view did not load a document"
                (= "yes" marker) (str "window marker after crossing: " (pr-str marker)))
        (check! "the comparison view rendered its own content"
-               (str/includes? (or head "") "比較") head)))
+               (and (str/includes? (or body "") "頭部前屈")
+                    (str/includes? (or body "") "×頭部重量"))
+               "expected the comparison table's own columns")))
 
    ;; 8. and back, with the canvas alive again
    (fn []
@@ -187,7 +215,7 @@
       ;; pass. Cf. the workspace rule that a check which could not run has to be
       ;; distinguishable from a check that passed.
       (cond
-        (< (count @results) 13)
+        (< (count @results) 16)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

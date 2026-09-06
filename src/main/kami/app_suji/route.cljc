@@ -13,6 +13,7 @@
   (route/validate!
    [{:id :simulate :fragment "#/" :label "姿勢シミュレーション"}
     {:id :compare :fragment "#/compare" :label "作業環境の比較"}
+    {:id :spine :fragment "#/spine" :label "椎間板の圧縮"}
     {:id :method :fragment "#/method" :label "計算の中身"}]))
 
 (def default-view (first views))

@@ -19,6 +19,7 @@
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
             [suji.methods.posture :as posture]
+            [suji.methods.spine :as spine]
             [suji.methods.segment :as segment]
             [suji.methods.strain :as strain]))
 
@@ -138,15 +139,16 @@
               [:span {:class "suji-note"}
                [:span {:class "suji-swatch" :style {:background (rgb-css scene/unloaded-rgb)}}]
                "この関節を通る筋がモデルに無い"]]))
-      (let [sum (muscle/tension-summary tensions loads)
-            un (:unassigned-frontal-nm sum 0.0)]
-        (when (> un 1e-9)
+      (let [f (:frontal loads)
+            fl (math/abs* (:lumbosacral-nm f 0.0))
+            fs (math/abs* (get-in f [:shoulder-per-side :left] 0.0))]
+        (when (or (> fl 0.5) (> fs 0.5))
           [:p {:class "suji-note"}
-           "⚠ 前額面に " [:strong (str (math/fmt-fixed un 2) " N·m")]
-           " のモーメントが生じているが、"
-           [:strong "このモデルには前額面の筋が無い"]
-           "（斜角筋・広背筋・中殿筋などを持たない）ので、この荷重はどの筋にも"
-           "割り当てられていない。表示中の %MVC は矢状面成分だけの答えである。"]))]
+           "前額面のモーメント —— L5/S1 " [:strong (str (math/fmt-fixed fl 2) " N·m")]
+           "、肩（片側）" [:strong (str (math/fmt-fixed fs 2) " N·m")]
+           "。腰方形筋・腹斜筋・中部三角筋・広背筋・斜角筋が担う。"
+           "これらの筋は 2026-09-06 に足したもので、それ以前この荷重は"
+           "「担う筋がモデルに無い」として報告されていた。"]))]
      [:div {:class "suji-readout"}
       (dds/card
        (dds/heading 3 "頸椎にかかる圧縮荷重")
@@ -224,6 +226,45 @@
                            "適用範囲外")]))
                     posture/reference-workstations)}))]))
 
+(defn spine-view [state]
+  (let [{:keys [tensions loads]} (solved state)
+        body (body-of state)
+        rows (spine/profile body (:posture state) tensions)
+        xcheck (spine/cervical-cross-check body (:posture state) tensions (:cervical loads))
+        steps (spine/attachment-steps rows)]
+    [:div {:class "dds-ext-container"}
+     (dds/section {}
+      (dds/heading 2 "椎間板レベルごとの圧縮")
+      [:p {:class "suji-note"}
+       "各レベルに載る重量と、そのレベルを跨ぐ筋張力の軸成分の和を、そのレベルの"
+       "椎間板断面積で割ったもの。"
+       [:strong "筋の項が支配的である"]
+       " —— 伸筋は短いモーメントアームで働くので、小さな外部モーメントを保つのに"
+       "大きな力が要り、その力は全部が関節を圧迫する。"]
+      (dds/table
+       {:headers ["レベル" "部位" "体重ぶん" "筋ぶん" "合計" "断面積" "圧縮応力"]
+        :rows (mapv (fn [r] [(:name r) (name (:region r))
+                             (str (math/fmt-fixed (:weight-n r) 0) " N")
+                             (str (math/fmt-fixed (:muscle-n r) 0) " N")
+                             (str (math/fmt-fixed (:force-n r) 0) " N")
+                             (str (math/fmt-fixed (:disc-area-cm2 r) 1) " cm²")
+                             (str (math/fmt-fixed (:stress-mpa r) 2) " MPa")])
+                    rows)})
+      [:p {:class "suji-note"}
+       [:strong "⚠ この表は検証されていない。"]
+       "頸椎については、検証済みの集中定数モデル（Hansraj 2014）が "
+       (math/fmt-fixed (:lumped-force-n xcheck) 0) " N とするところをこの表は "
+       (math/fmt-fixed (:level-force-n xcheck) 0) " N とし、比は "
+       (math/fmt-fixed (:ratio xcheck) 2) " 倍ある。"
+       "集中定数側は公表値に合わせた実効レバーを使い、この表は筋の幾何モーメントアームを"
+       "使うためである。"
+       [:strong "検証を継承しているのは集中定数の側だけ"] "である。"]
+      (when (seq steps)
+        [:p {:class "suji-note"}
+         "また、実際の筋は複数の椎骨にまたがって付着するが、このモデルは点で付着させる。"
+         "そのため " (str/join "・" (map #(str (:after %) " → " (:at %)) steps))
+         " で筋の寄与が段差状に 0 へ落ちる —— これはモデルの人工物であって身体ではない。"]))]))
+
 (defn method-view [_state]
   [:div {:class "dds-ext-container"}
    (dds/section {}
@@ -285,5 +326,6 @@
       (case view
         :simulate [:div (simulate-view state) (dds/container (control-panel state))]
         :compare (compare-view state)
+        :spine (spine-view state)
         :method (method-view state)
         (simulate-view state))]]))

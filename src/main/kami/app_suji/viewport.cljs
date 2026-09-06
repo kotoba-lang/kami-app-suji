@@ -32,13 +32,17 @@
 ;; no error and a plausible-looking picture, which is the worst way for this to
 ;; fail. The buffers are per-slot, uploaded once at init and re-transformed each
 ;; frame; the geometry itself is still tessellated exactly twice.
-(def ^:private bone-slots 8)
-(def ^:private joint-slots 10)
+(def ^:private bone-slots 12)
+(def ^:private joint-slots 12)
+(def ^:private muscle-slots 20)
+(def ^:private disc-slots 12)
 
 (defn- upload! [viewport]
   (let [ctx (:mesh-context viewport)]
     {:bones (vec (repeatedly bone-slots #(mesh/upload-mesh! ctx unit-cylinder)))
-     :joints (vec (repeatedly joint-slots #(mesh/upload-mesh! ctx joint-sphere)))}))
+     :joints (vec (repeatedly joint-slots #(mesh/upload-mesh! ctx joint-sphere)))
+     :muscles (vec (repeatedly muscle-slots #(mesh/upload-mesh! ctx unit-cylinder)))
+     :discs (vec (repeatedly disc-slots #(mesh/upload-mesh! ctx unit-cylinder)))}))
 
 (defn- draws-for
   "scene → the draw list `render-scene!` consumes. The unit cylinder has radius 1,
@@ -47,10 +51,13 @@
 
   A draw with no slot is DROPPED and reported rather than silently overlapping an
   earlier one — see the note above. If this ever fires, raise the slot counts."
-  [{:keys [bones joints]} meshes]
-  (when (or (> (count bones) bone-slots) (> (count joints) joint-slots))
-    (js/console.error "kami-app-suji: scene has more objects than GPU slots —"
-                      (count bones) "bones /" (count joints) "joints; raise bone-slots/joint-slots"))
+  [{:keys [bones joints muscles discs]} meshes]
+  (doseq [[label n cap] [["bones" (count bones) bone-slots]
+                         ["joints" (count joints) joint-slots]
+                         ["muscles" (count muscles) muscle-slots]
+                         ["discs" (count discs) disc-slots]]]
+    (when (> n cap)
+      (js/console.error "kami-app-suji:" n label "but only" cap "GPU slots — raise the slot count")))
   (concat
    (map (fn [{:keys [color transform radius-m]} buffers]
           (let [[sx sy sz] (:scale transform)]
@@ -62,7 +69,20 @@
           {:buffers buffers
            :color color
            :transform (assoc transform :scale [0.026 0.026 0.026])})
-        joints (:joints meshes))))
+        joints (:joints meshes))
+   ;; the muscles are the only geometry here that is not schematic: their
+   ;; endpoints are where suji says they attach, and their direction is the line
+   ;; whose moment arm it computed
+   (map (fn [{:keys [color transform radius-m]} buffers]
+          (let [[sx sy sz] (:scale transform)]
+            {:buffers buffers :color color
+             :transform (assoc transform :scale [(* sx radius-m) sy (* sz radius-m)])}))
+        muscles (:muscles meshes))
+   (map (fn [{:keys [color transform radius-m]} buffers]
+          (let [[sx sy sz] (:scale transform)]
+            {:buffers buffers :color color
+             :transform (assoc transform :scale [(* sx radius-m) sy (* sz radius-m)])}))
+        discs (:discs meshes))))
 
 (defn render!
   "Draw one frame for a scene. A no-op before init completes, so the app can call

@@ -67,63 +67,78 @@
           p (:pose scene)
           {:keys [eye target]} (scene/camera p aspect)
           {:keys [min-x max-x min-y max-y]} (scene/bounds p)
-          dist (nth eye 2)
+          dist (math/vlen (math/v- eye target))
           half-h (* dist (Math/tan (/ math/pi 6.0)))   ;; fov/2 = pi/6
           half-w (* half-h aspect)
-          [cx cy] eye]
-      (is (math/nearly= 0.0 (:azimuth-deg (scene/camera p aspect)) 1e-9)
-          "a sagittal posture must not be rotated away from the sagittal view")
-      (is (= (take 2 eye) (take 2 target)) "the camera looks straight down -Z")
+          cy (second eye)]
+      (is (math/nearly= scene/base-azimuth-deg (:azimuth-deg (scene/camera p aspect)) 1e-9)
+          "a symmetric posture always gets the same angle, so two can be compared")
       (is (<= (- cy half-h) min-y) (str (:name w) " @" aspect ": bottom is cut off"))
       (is (>= (+ cy half-h) max-y) (str (:name w) " @" aspect ": top is cut off"))
-      (is (<= (- cx half-w) min-x) (str (:name w) " @" aspect ": front is cut off"))
-      (is (>= (+ cx half-w) max-x) (str (:name w) " @" aspect ": back is cut off")))))
+      ;; horizontal framing now has to cover the body's WIDTH as well as its
+      ;; depth, since both arms are placed; the vertical bound is the tight one
+      (is (>= (* 2.0 half-w) (- max-x min-x)) (str (:name w) " @" aspect ": too narrow")))))
 
 (deftest a-refused-segment-is-neither-green-nor-red
-  ;; With the head folded past horizontal, this model's one-sided suspension line
-  ;; would pull the girdle DOWN, so `suji` declines to give upper trapezius and
-  ;; levator scapulae a force. The picture must decline too: colouring the arm
-  ;; green would say the posture is easy, red would say it is hard, and the model
-  ;; said neither.
+  ;; With the trunk bent hard sideways, all three of this model's girdle
+  ;; suspenders on the raised side would pull the shoulder DOWN, and `suji`
+  ;; declines to give them a force. A real shoulder there rests on the ribcage,
+  ;; which this model has no element for. The picture must decline too: green
+  ;; would say the posture is easy, red would say it is hard, and the model said
+  ;; neither.
   ;;
-  ;; This test used to reach the refusal through 90° of shoulder flexion, where
-  ;; the anterior deltoid's straight chord passed through the joint. Wrapping
-  ;; surfaces (suji eb3243d5) removed that one — the arm now floors at the humeral
-  ;; head's radius — so the trigger moved rather than the behaviour.
+  ;; The trigger has moved twice as the model improved — first away from 90° of
+  ;; shoulder flexion when wrapping surfaces landed, then away from a folded head
+  ;; when the middle trapezius did. The behaviour under test has not.
   (let [state (-> core/initial-state
-                  (assoc-in [:posture :head-flexion-deg] 60.0)
-                  (assoc-in [:posture :trunk-flexion-deg] 60.0))
+                  (assoc-in [:posture :trunk-flexion-deg] 60.0)
+                  (assoc-in [:posture :trunk-lateral-bend-deg] 40.0))
         {:keys [tensions scene]} (core/solved state)
-        refused (filter :refused tensions)
-        arm-bone (first (filter #(= "upper_arm" (:label %)) (:bones scene)))]
-    (is (seq refused)
-        "the premise of this test: suji refuses the suspension muscles here")
-    (is (every? #(= :acts-the-wrong-way (:refused %)) refused)
-        "and refuses them for acting the wrong way, not for want of leverage")
+        refused (remove :antagonist? (filter :refused tensions))
+        arm-bone (first (filter #(= "upper_arm/right" (:label %)) (:bones scene)))]
+    (is (seq refused) "the premise of this test: suji refuses somebody here")
     (is (= :refused (:state arm-bone)))
     (is (= scene/refused-rgb (:color arm-bone)))
     (is (nil? (:mvc-pct arm-bone)) "a refused segment has no %MVC to show")
     (is (not= scene/refused-rgb scene/unloaded-rgb)
         "'not answered' must be distinguishable from 'no muscle here'")
+    (is (not= scene/refused-rgb scene/antagonist-rgb)
+        "and from 'not being asked', which is a different thing again")
     (doseq [pct [0.0 5.0 20.0 60.0 120.0]]
       (is (not= scene/refused-rgb (scene/ramp-rgb pct))
           (str "the refusal colour must not collide with the load ramp at " pct "%")))))
 
-(deftest a-wrapped-joint-is-no-longer-refused
-  ;; the wrapping surfaces are load-bearing for this app: 90° of shoulder flexion
-  ;; is an ordinary posture and used to come back unanswerable
-  (let [{:keys [tensions]} (core/solved (-> core/initial-state
-                                            (assoc-in [:posture :shoulder-flexion-deg] 90.0)
-                                            (assoc-in [:posture :elbow-flexion-deg] 0.0)))
-        deltoid (first (filter #(= "anterior_deltoid" (:name %)) tensions))]
-    (is (nil? (:refused deltoid)))
-    (is (some? (:mvc-pct deltoid)))))
+(deftest an-antagonist-does-not-make-a-segment-look-unanswered
+  ;; For a mirror-paired task exactly one side resists and the other is refused as
+  ;; its antagonist. Colouring the segment purple for that would mark most of the
+  ;; body unanswerable in any posture with a frontal component.
+  (let [state (assoc-in core/initial-state [:posture :shoulder-abduction-deg] 45.0)
+        {:keys [tensions scene]} (core/solved state)]
+    (is (some :antagonist? tensions) "the premise: this posture has antagonists")
+    (doseq [b (:bones scene)]
+      (is (not= :refused (:state b))
+          (str (:label b) ": an antagonist must not read as an unanswered load")))))
+
+(deftest the-wrapped-and-the-covered-joints-are-no-longer-refused
+  ;; two postures that used to come back unanswerable, kept as tests because the
+  ;; wrapping surfaces and the middle trapezius are load-bearing for this app
+  (doseq [[label st] [["90° shoulder flexion"
+                       (-> core/initial-state
+                           (assoc-in [:posture :shoulder-flexion-deg] 90.0)
+                           (assoc-in [:posture :elbow-flexion-deg] 0.0))]
+                      ["head and trunk folded"
+                       (-> core/initial-state
+                           (assoc-in [:posture :head-flexion-deg] 60.0)
+                           (assoc-in [:posture :trunk-flexion-deg] 60.0))]]]
+    (let [{:keys [tensions loads]} (core/solved st)]
+      (is (:complete? (muscle/tension-summary tensions loads))
+          (str label " must now be answerable")))))
 
 (deftest the-summary-does-not-call-an-incomplete-answer-complete
   (let [complete (core/solved core/initial-state)
         refused (core/solved (-> core/initial-state
-                                 (assoc-in [:posture :head-flexion-deg] 60.0)
-                                 (assoc-in [:posture :trunk-flexion-deg] 60.0)))]
+                                 (assoc-in [:posture :trunk-flexion-deg] 60.0)
+                                 (assoc-in [:posture :trunk-lateral-bend-deg] 40.0)))]
     (is (:complete? (muscle/tension-summary (:tensions complete) (:loads complete))))
     (is (not (:complete? (muscle/tension-summary (:tensions refused) (:loads refused)))))))
 
@@ -132,25 +147,32 @@
   (let [flat (core/solved core/initial-state)
         abducted (core/solved (assoc-in core/initial-state
                                         [:posture :shoulder-abduction-deg] 60.0)) 
-        z-of (fn [r label] (nth (:com (first (filter #(= label (:name %))
-                                                     (get-in r [:scene :pose :segments])))) 2))]
-    (is (math/nearly= 0.0 (z-of flat "hand") 1e-9) "a sagittal posture stays in the plane")
-    (is (> (Math/abs (z-of abducted "hand")) 0.05)
-        "abduction must carry the hand out of the sagittal plane")))
+        y-of (fn [r label] (nth (:com (first (filter #(= label (:name %))
+                                                     (get-in r [:scene :pose :segments])))) 1))]
+    ;; abduction lifts each hand relative to its own shoulder — the sagittal
+    ;; z-check this replaced stopped meaning anything once both arms were placed
+    (is (> (y-of abducted "hand/left") (y-of flat "hand/left"))
+        "abduction must raise the hand")
+    (is (math/nearly= (y-of abducted "hand/left") (y-of abducted "hand/right") 1e-9)
+        "and must do it symmetrically")))
 
-(deftest the-camera-swings-only-when-there-is-something-out-of-plane-to-see
-  ;; A control that changes the model but not the picture is a control the reader
-  ;; cannot use; a camera that swings for a posture with nothing out of plane is a
-  ;; picture the reader cannot compare. Both directions are checked.
-  (let [flat (get-in (core/solved core/initial-state) [:scene :camera])
+(deftest the-camera-swings-with-asymmetry-not-with-width
+  ;; Before the model was bilateral, reaching out of the sagittal plane and being
+  ;; asymmetric were the same thing. Now the body is ALWAYS out of plane — both
+  ;; arms hang off the midline — and a symmetric posture is still readable head-on.
+  ;; Swinging for mere width would rotate every posture and make none of them
+  ;; comparable, which is what happened when this test first failed.
+  (let [sym (get-in (core/solved core/initial-state) [:scene :camera])
         bent (get-in (core/solved (assoc-in core/initial-state
-                                            [:posture :shoulder-abduction-deg] 60.0))
+                                            [:posture :trunk-lateral-bend-deg] 30.0))
                      [:scene :camera])]
-    (is (math/nearly= 0.0 (:out-of-plane-m flat) 1e-9))
-    (is (math/nearly= 0.0 (:azimuth-deg flat) 1e-9))
-    (is (> (:out-of-plane-m bent) 0.05))
-    (is (> (:azimuth-deg bent) 5.0) "an abducted posture has to be shown from an angle")
-    (is (<= (:azimuth-deg bent) 40.0) "and the swing is bounded")))
+    (is (> (:out-of-plane-m sym) 0.1) "a bilateral body is always out of plane")
+    (is (math/nearly= 0.0 (:asymmetry-m sym) 1e-9) "but a symmetric posture is symmetric")
+    (is (math/nearly= scene/base-azimuth-deg (:azimuth-deg sym) 1e-9))
+    (is (> (:asymmetry-m bent) 0.05) "leaning sideways makes the two halves differ")
+    (is (> (:azimuth-deg bent) (:azimuth-deg sym)) "and that is what earns extra swing")
+    (is (<= (:azimuth-deg bent) (+ scene/base-azimuth-deg scene/extra-azimuth-deg))
+        "the swing is bounded")))
 
 (deftest leaning-further-forward-reddens-the-trunk
   (let [heat (fn [flex]

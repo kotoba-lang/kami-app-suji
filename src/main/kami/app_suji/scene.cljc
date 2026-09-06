@@ -17,20 +17,31 @@
   the same ones `strain/stiffness-band` already uses for text — so the picture and
   the table cannot say different things. NON-DIAGNOSTIC (G1): a colour is not a
   finding, and there is no colour in this file that means anything clinical."
-  (:require [suji.methods.load :as load]
+  (:require [suji.methods.attachment :as attachment]
+            [suji.methods.load :as load]
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
-            [suji.methods.pose :as pose]))
+            [suji.methods.pose :as pose]
+            [suji.methods.spine :as spine]))
 
 ;; --- which muscles cross which joint -----------------------------------------
 ;; A segment's load is the load at the joint it hangs from. These are the muscle
 ;; groups `suji.methods.muscle` solves, assigned to the joint they act about.
 (def joint-muscles
-  {"head_neck"      #{"cervical_extensors"}
-   "thorax_abdomen" #{"erector_spinae"}
-   "upper_arm"      #{"anterior_deltoid" "upper_trapezius" "levator_scapulae"}
-   "forearm"        #{"anterior_deltoid" "upper_trapezius" "levator_scapulae"}
-   "hand"           #{"anterior_deltoid" "upper_trapezius" "levator_scapulae"}
+  "Which muscle GROUPS act about the joint each segment hangs from.
+
+  Groups, not instances: the model is bilateral, so `upper_trapezius` names two
+  muscles and a segment on the left is coloured by the left one. Matching on the
+  instance name would have needed this table written twice; matching on the group
+  and the segment's own side needs it written once."
+  {"head_neck"      #{"cervical_extensors" "scalenes"}
+   "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"}
+   "upper_arm"      #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
+                      "upper_trapezius" "middle_trapezius" "levator_scapulae"}
+   "forearm"        #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
+                      "upper_trapezius" "middle_trapezius" "levator_scapulae"}
+   "hand"           #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
+                      "upper_trapezius" "middle_trapezius" "levator_scapulae"}
    "pelvis"         #{}})
 
 ;; --- the load ramp -----------------------------------------------------------
@@ -47,6 +58,12 @@
 (def unloaded-rgb
   "The base segment — a segment no solved muscle acts about (the pelvis)."
   [0.55 0.57 0.62])
+
+(def antagonist-rgb
+  "A muscle that could act but is not being asked to, because its opposite number
+  is carrying this instant's load. Dimmer than every load colour: it is neither
+  loaded nor unanswerable, and drawing it like either would be a claim."
+  [0.30 0.33 0.40])
 
 (def refused-rgb
   "A segment whose load the model declined to compute. Deliberately unlike both
@@ -91,10 +108,13 @@
   wrapping surface, so the force there diverges. Colouring a refused segment green
   would say the posture is easy; colouring it red would say it is hard; both are
   claims the model explicitly declined to make."
-  [tensions segment-name]
-  (let [names (get joint-muscles segment-name #{})
-        mine (filter #(contains? names (:name %)) tensions)
-        refused (filter :refused mine)
+  [tensions base side]
+  (let [groups (get joint-muscles base #{})
+        mine (filter #(and (contains? groups (:group %))
+                           (or (= :midline (:side %)) (= side (:side %))))
+                     tensions)
+        ;; an antagonist is not an unanswered load; it must not turn a segment purple
+        refused (remove :antagonist? (filter :refused mine))
         vals (keep :mvc-pct mine)]
     (cond
       (empty? mine) {:kind :none}
@@ -118,12 +138,12 @@
 (defn bone-draws
   "One draw per placed segment."
   [pose-data tensions]
-  (mapv (fn [{:keys [name proximal distal length-m euler-z] :as placed}]
+  (mapv (fn [{:keys [name base side proximal distal length-m euler-z] :as placed}]
           (let [mid (math/vmid proximal distal)
-                {:keys [kind mvc-pct] :as st} (segment-state tensions name)]
+                {:keys [kind mvc-pct] :as st} (segment-state tensions base side)]
             {:label name
              :geo :cylinder
-             :radius-m (get bone-radius-m name 0.03)
+             :radius-m (get bone-radius-m base 0.03)
              :state kind
              :refused-names (:names st)
              :mvc-pct mvc-pct
@@ -137,6 +157,86 @@
                          :scale [1.0 length-m 1.0]}
              :com (:com placed)}))
         (:segments pose-data)))
+
+(defn euler-for-direction
+  "XYZ Euler angles that carry a unit cylinder's +Y axis onto `d`.
+
+  `kami.webgpu.mesh/model-matrix` composes Rz·Ry·Rx, so with ry = 0 the image of
+  +Y is [−sin(rz)cos(rx), cos(rz)cos(rx), sin(rx)] — which inverts in closed form.
+  Bones only ever tilt in the sagittal plane and carry `:euler-z` for that; muscles
+  do not, so they need the general case."
+  [[dx dy dz]]
+  (let [dz (math/clamp dz -1.0 1.0)
+        rx (Math/asin dz)
+        rz (Math/atan2 (- dx) dy)]
+    [rx 0.0 rz]))
+
+(def muscle-radius-m
+  "Drawn thickness of a line of action. Visual only — the model is a line and has
+  no cross-section — so it is stated here rather than implied by a shader."
+  0.008)
+
+(defn muscle-draws
+  "One thin rod per muscle instance, along its actual line of action, tinted by the
+  same %MVC ramp the bones use.
+
+  This is the only anatomy in this app that is neither a schematic cylinder nor a
+  landmark sphere: the endpoints are where `suji` says the muscle attaches and the
+  direction is the line whose moment arm it computed. A refused muscle is drawn in
+  the refusal colour rather than omitted — a muscle that vanishes when the model
+  cannot solve it looks like a muscle that is not there."
+  [pose-data stature-m tensions]
+  (let [by-name (into {} (map (juxt :name identity)) tensions)]
+    (vec (for [m attachment/instances
+               :let [{:keys [origin insertion dir length-m]}
+                     (attachment/line-of-action pose-data stature-m m)]
+               :when (and dir (> length-m 1e-6))
+               :let [t (by-name (:name m))
+                     pct (:mvc-pct t)]]
+           {:label (:name m)
+            :geo :cylinder
+            :radius-m muscle-radius-m
+            :mvc-pct pct
+            :refused (:refused t)
+            :antagonist? (:antagonist? t)
+            :color (cond
+                     (:antagonist? t) antagonist-rgb
+                     (:refused t) refused-rgb
+                     pct (ramp-rgb pct)
+                     :else unloaded-rgb)
+            :transform {:translation (math/vmid origin insertion)
+                        :rotation (euler-for-direction dir)
+                        :scale [1.0 length-m 1.0]}}))))
+
+(def disc-stress-max-mpa
+  "Top of the disc-stress ramp. Not a tolerance and not a threshold — a scale, so
+  that two levels can be compared by eye. Disc tolerances are a clinical question
+  and this actor does not answer clinical questions (G1)."
+  1.2)
+
+(defn disc-draws
+  "A flat disc at each intervertebral level, tinted by its compressive stress.
+
+  NOT DRAWN. Kept because the geometry is right and computing it costs nothing,
+  but a disc's radius is about 24 mm at L5/S1 and the trunk it sits inside is
+  drawn at 62 mm, so every one of these is hidden. Adding them to the frame would
+  spend GPU slots on objects nobody can see, and — worse — would let a reader
+  believe the picture shows the spine when it does not. The level profile is on
+  the `#/spine` view, where it is a table and can be read."
+  [pose-data body tensions]
+  (vec (for [lvl spine/levels
+             :let [{:keys [point axis]} (spine/level-point pose-data lvl)
+                   row (spine/level-compression body pose-data tensions lvl)
+                   frac (math/clamp (/ (:stress-mpa row) disc-stress-max-mpa) 0.0 1.0)]]
+         {:label (:name lvl)
+          :geo :cylinder
+          :stress-mpa (:stress-mpa row)
+          :force-n (:force-n row)
+          :color (ramp-rgb (* 100.0 frac))
+          :transform {:translation point
+                      :rotation (euler-for-direction axis)
+                      :scale [1.0 0.012 1.0]}
+          :radius-m (Math/sqrt (/ (:disc-area-cm2 row) 3.14159 1e4))})))
 
 (defn joint-draws
   "A small sphere at each anatomical landmark, so the chain reads as articulated
@@ -161,6 +261,15 @@
     {:min-x (apply min xs) :max-x (apply max xs)
      :min-y (apply min ys) :max-y (apply max ys)}))
 
+(def base-azimuth-deg
+  "Always shown from slightly off the sagittal plane, so the two arms of a
+  bilateral body separate rather than overlapping."
+  18.0)
+
+(def extra-azimuth-deg
+  "Additional swing, reached at 20 cm of left/right mismatch."
+  22.0)
+
 (def ^:private fov-rad
   "`kami.webgpu.mesh/view-projection` builds its perspective with a fixed vertical
   field of view of pi/3. Framing has to use the same number the executor uses; a
@@ -169,12 +278,34 @@
   (/ math/pi 3.0))
 
 (defn out-of-plane-extent
-  "How far the chain reaches out of the sagittal plane (metres). Zero for a purely
-  sagittal posture, which is the default."
+  "How far the chain reaches out of the sagittal plane (metres). Never zero since
+  the model became bilateral — both arms hang at half the biacromial breadth from
+  the midline — so this measures the width to FRAME, not the reason to rotate."
   [pose-data]
   (apply max 0.0 (map (fn [{:keys [proximal distal]}]
                         (max (Math/abs (nth proximal 2)) (Math/abs (nth distal 2))))
                       (:segments pose-data))))
+
+(defn asymmetry-m
+  "How far the left and right halves differ (metres), as the largest mismatch
+  between a paired segment's centre of mass and its opposite number's mirror
+  image.
+
+  THIS, not the out-of-plane extent, is what a camera swing has to follow. Before
+  the model was bilateral, reaching out of the sagittal plane and being asymmetric
+  were the same thing; now the body is always out of plane and a symmetric posture
+  is still perfectly readable head-on. Swinging for mere width would rotate every
+  posture and make none of them comparable."
+  [pose-data]
+  (let [by (into {} (map (juxt :name identity)) (:segments pose-data))]
+    (apply max 0.0
+           (for [base ["upper_arm" "forearm" "hand"]
+                 :let [l (by (str base "/left"))
+                       r (by (str base "/right"))]
+                 :when (and l r)
+                 :let [[lx ly lz] (:com l) [rx ry rz] (:com r)]]
+             (max (Math/abs (- lx rx)) (Math/abs (- ly ry))
+                  (Math/abs (- lz (- rz))))))))
 
 (defn camera
   "Framed on the chain's own bounds, and swung around it only when there is
@@ -203,12 +334,19 @@
          extent (max h (/ (max w (* 2.0 oop)) (max 0.1 aspect)))
          dist (* 1.28 (/ (* 0.5 extent) (Math/tan (* 0.5 fov-rad))))
          dist (max 0.6 dist)
-         ;; up to 40° of swing, reached by ~25 cm of out-of-plane reach
-         az (* (/ math/pi 180.0) 40.0 (math/clamp (/ oop 0.25) 0.0 1.0))]
+         ;; A fixed base angle, so the two arms separate instead of overlapping in
+         ;; a head-on sagittal view, plus more with ASYMMETRY — which is the thing
+         ;; a rotated view is needed to see. A symmetric posture always gets the
+         ;; same angle, so two of them can be compared.
+         asym (asymmetry-m pose-data)
+         az (* (/ math/pi 180.0)
+               (+ base-azimuth-deg
+                  (* extra-azimuth-deg (math/clamp (/ asym 0.20) 0.0 1.0))))]
      {:eye [(+ cx (* dist (Math/sin az))) cy (* dist (Math/cos az))]
       :target [cx cy 0.0]
       :azimuth-deg (math/degrees az)
-      :out-of-plane-m oop})))
+      :out-of-plane-m oop
+      :asymmetry-m asym})))
 
 (defn scene
   "The whole frame: body + posture + solved loads → draws + camera + legend.
@@ -221,6 +359,10 @@
   (let [p (pose/solve-pose body posture)]
     {:pose p
      :bones (bone-draws p tensions)
+     :muscles (muscle-draws p (:stature-m body) tensions)
+     ;; `disc-draws` exists and is correct, and is deliberately not in the frame —
+     ;; see its docstring
+     :discs []
      :joints (joint-draws p)
      :camera (camera p)
      :legend (mapv (fn [{:keys [band max-mvc-pct rgb]}]
