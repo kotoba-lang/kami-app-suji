@@ -181,6 +181,24 @@
         t (math/clamp (/ (- mvc-pct prev-max) (max 1e-9 span)) 0.0 1.0)]
     (mapv #(lerp %1 %2 (* 0.65 t)) (:rgb this) target)))
 
+(def no-load-colours
+  "Every colour a draw can take that is NOT a point on the load ramp, with what it
+  means — as data, so the key the page renders and the colours this namespace
+  assigns cannot drift apart.
+
+  It was prose in `core`, written while looking at the bones, and it missed the
+  antagonist colour entirely: that one is assigned to MUSCLE lines, not to
+  segments. Measured over 108 postures, 1,308 muscle draws carry it. The reader
+  saw a distinctly dimmed muscle constantly with nothing in the key to read it by,
+  and both available guesses — `fine` and `terrible` — are claims this model does
+  not make about an antagonist.
+
+  The order is the order they are decided in `muscle-draws`."
+  [[antagonist-rgb "拮抗筋 —— 動けるが、いまは反対側が荷重を担っている"]
+   [refused-rgb "適用範囲外（計算していない）"]
+   [ligament-rgb "靭帯が担っている（筋は沈黙）"]
+   [unloaded-rgb "この関節を通る筋がモデルに無い（分節）／%MVC を持たない（筋の線）"]])
+
 (defn segment-state
   "What this segment's colour is allowed to claim.
 

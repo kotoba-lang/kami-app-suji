@@ -368,3 +368,41 @@
     ;; never reached the geometry
     (is (< 1 (count (distinct (map :radius-m draws))))
         (str "every disc has the same radius: " (pr-str (distinct (map :radius-m draws)))))))
+
+(deftest every-colour-a-draw-can-take-is-in-the-key
+  ;; A colour with no entry in the key leaves the reader to guess, and both
+  ;; available guesses are claims the model did not make. The antagonist colour
+  ;; had no entry for as long as it existed: it is assigned to MUSCLE lines, and
+  ;; the key was written while looking at the segments. Measured over the sweep
+  ;; below, 1,308 muscle draws carry it.
+  ;;
+  ;; A draw's colour is either the load ramp AT ITS OWN %MVC or one of the named
+  ;; colours. Deciding that by recomputing `ramp-rgb` from the draw is exact;
+  ;; my first version enumerated the ramp at integer %MVC and called every
+  ;; genuine ramp colour unkeyed, because the real values are continuous.
+  (let [keyed (set (map first scene/no-load-colours))
+        seen (atom {})]
+    (doseq [tf [0.0 20.0 40.0 60.0] hf [0.0 30.0 60.0] ab [0.0 45.0 90.0]
+            preset ["laptop-on-lap" "standing-neutral" "deep-squat"]]
+      (let [st (-> (assoc core/initial-state :posture (core/preset-posture preset))
+                   (assoc-in [:posture :trunk-flexion-deg] tf)
+                   (assoc-in [:posture :head-flexion-deg] hf)
+                   (assoc-in [:posture :shoulder-abduction-deg] ab))
+            {:keys [scene]} (core/solved st)]
+        (doseq [d (concat (:bones scene) (:muscles scene))]
+          (let [ramp? (and (number? (:mvc-pct d))
+                           (= (:color d) (scene/ramp-rgb (:mvc-pct d))))]
+            (when-not ramp?
+              (swap! seen update (:color d) (fnil inc 0)))))))
+    (is (seq @seen) "no non-ramp colour was drawn at all, so this asserts nothing")
+    (let [unkeyed (remove keyed (keys @seen))]
+      (is (empty? unkeyed)
+          (str "colours drawn with no entry in the key: "
+               (pr-str (map (fn [c] [c (get @seen c)]) unkeyed)))))
+    ;; the control: the key must not explain a colour nothing ever draws
+    (let [unused (remove @seen keyed)]
+      (is (empty? unused)
+          (str "the key explains colours no draw takes: " (pr-str unused))))
+    ;; and the antagonist colour specifically, since it is the one that was missing
+    (is (pos? (get @seen scene/antagonist-rgb 0))
+        "no antagonist draw in the sweep, so this does not cover the case it was written for")))
