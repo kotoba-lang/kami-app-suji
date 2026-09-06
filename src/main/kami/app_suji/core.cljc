@@ -165,8 +165,13 @@
                      (:joints loads))}))
       (dds/card
        (dds/heading 3 "筋の緊張と強張り")
+       [:p {:class "suji-note"}
+        "「出せる力」はその筋が" [:strong "この姿勢の長さで"]
+        "出せる力（PCSA × 比張力 × Hill の力‑長さ係数）。%MVC の分母はこれであって"
+        "ピーク値ではない —— 筋はどの長さでも最大を出せるわけではなく、"
+        "長さを決めるのは姿勢だから。⚠ は最大随意収縮を超えていることを示す。"]
        (dds/table
-        {:headers ["筋" "モーメントアーム" "張力" "%MVC" "帯"
+        {:headers ["筋" "モーメントアーム" "張力" "出せる力" "%MVC" "帯"
                    (str (int (:session-minutes state)) "分後")]
          :rows (mapv (fn [t st]
                        (if (:refused t)
@@ -174,11 +179,15 @@
                          ;; the %MVC column and nothing else would let a reader
                          ;; take it for a small number; the reason is the answer.
                          [(str/replace (:name t) "_" " ")
-                          (coeff-label t) "—" "適用範囲外" "—" "—"]
+                          (coeff-label t) "—" "—" "適用範囲外" "—" "—"]
                          [(str/replace (:name t) "_" " ")
                           (coeff-label t)
                           (str (math/fmt-fixed (:force-n t) 0) " N")
-                          (str (math/fmt-fixed (:mvc-pct t) 1) " %")
+                          ;; the denominator of the %MVC beside it: what this
+                          ;; muscle can produce AT THIS LENGTH, not its peak
+                          (str (math/fmt-fixed (:f-max-n t) 0) " N")
+                          (str (math/fmt-fixed (:mvc-pct t) 1) " %"
+                               (when (:over-mvc? t) " ⚠"))
                           (:band (scene/band-for (:mvc-pct t)))
                           (str (strain/stiffness-band (:stiffness-index st))
                                (when (:saturated? st) "（飽和）"))]))
