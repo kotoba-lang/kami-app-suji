@@ -139,7 +139,17 @@
        (check! "the frontal-plane control still leaves a drawn body on screen"
                (and (number? uniq) (> uniq 3)) (str "distinct colours: " uniq))))
 
-   ;; 7. it is one page: crossing a view must not load a document
+   ;; 7. the frontal load is reported as a number nobody is carrying
+   (fn []
+     (p/let [body (.evaluate page "document.body.innerText")]
+       (check! "the unassigned frontal moment is stated as a figure, not as prose"
+               (boolean (re-find #"前額面に\s*[0-9]+\.[0-9]+\s*N·m" (or body "")))
+               "expected an N·m figure for the frontal-plane load")
+       (check! "and the page says no muscle in the model carries it"
+               (str/includes? (or body "") "前額面の筋が無い")
+               "expected the reason the load is unassigned")))
+
+   ;; 8. it is one page: crossing a view must not load a document
    (fn []
      (p/let [_ (.evaluate page "window.__sujiSameDocument = 'yes'")
              _ (.click page "a[href='#/compare']")
@@ -177,7 +187,7 @@
       ;; pass. Cf. the workspace rule that a check which could not run has to be
       ;; distinguishable from a check that passed.
       (cond
-        (< (count @results) 11)
+        (< (count @results) 13)
         (do (println "REFUSING to report a pass: only" (count @results) "checks ran.")
             (process/exit 2))
         (seq fails) (process/exit 1)

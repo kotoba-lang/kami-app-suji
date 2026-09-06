@@ -138,12 +138,15 @@
               [:span {:class "suji-note"}
                [:span {:class "suji-swatch" :style {:background (rgb-css scene/unloaded-rgb)}}]
                "この関節を通る筋がモデルに無い"]]))
-      (when (> (get-in scene [:camera :out-of-plane-m] 0.0) 0.005)
-        [:p {:class "suji-note"}
-         "⚠ 前額面の角度は姿勢（幾何）を動かすが、"
-         [:strong "モーメントの釣り合いはまだ矢状面のみ"]
-         "である —— 外転・側屈が生む前額面の荷重成分はこのモデルが計算していない。"
-         "表示中の数値は矢状面成分だけの答えである。"])]
+      (let [sum (muscle/tension-summary tensions loads)
+            un (:unassigned-frontal-nm sum 0.0)]
+        (when (> un 1e-9)
+          [:p {:class "suji-note"}
+           "⚠ 前額面に " [:strong (str (math/fmt-fixed un 2) " N·m")]
+           " のモーメントが生じているが、"
+           [:strong "このモデルには前額面の筋が無い"]
+           "（斜角筋・広背筋・中殿筋などを持たない）ので、この荷重はどの筋にも"
+           "割り当てられていない。表示中の %MVC は矢状面成分だけの答えである。"]))]
      [:div {:class "suji-readout"}
       (dds/card
        (dds/heading 3 "頸椎にかかる圧縮荷重")
@@ -182,7 +185,7 @@
           "この姿勢では " (str/join "・" (map #(str/replace (:name %) "_" " ") r))
           " の力を計算していない。直線モデルには腱の巻き付き面が無く、"
           "作用線が関節を通る近傍では必要張力が発散するため、モデルが答えを拒否している。"])
-       (when-not (:complete? (muscle/tension-summary tensions))
+       (when-not (:complete? (muscle/tension-summary tensions loads))
          [:p {:class "suji-note"}
           "この結果は不完全である —— 荷重の一部はどの筋にも割り当てられていない。"]))]]))
 
@@ -209,7 +212,7 @@
                          (str (math/fmt-fixed (:moment-nm ls) 1) " N·m")
                          (if-let [mx (:max-mvc-pct (muscle/tension-summary tensions))]
                            (str (math/fmt-fixed mx 1) " %"
-                                (when-not (:complete? (muscle/tension-summary tensions)) " ⚠"))
+                                (when-not (:complete? (muscle/tension-summary tensions loads)) " ⚠"))
                            "適用範囲外")]))
                     posture/reference-workstations)}))]))
 

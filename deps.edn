@@ -16,7 +16,7 @@
         ;; the UI has to show that rather than a number.
         io.github.cloud-itonami/suji
         {:git/url "https://github.com/cloud-itonami/suji.git"
-         :git/sha "181473fb01c778aedde7e08809b48e3ac8b698c1"}
+         :git/sha "2156d597f64c927c1f7f36a9b69fbd39f195ad3c"}
 
         ;; デジタル庁デザインシステム — the workspace's base design system
         ;; (owner decision 2026-08-05). App CSS is written to the --hig-* token
