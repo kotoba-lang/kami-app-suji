@@ -35,6 +35,7 @@
    {:path [:posture :trunk-flexion-deg] :label "体幹前傾" :unit "°" :min 0 :max 60 :step 1}
    {:path [:posture :shoulder-flexion-deg] :label "肩屈曲" :unit "°" :min 0 :max 90 :step 1}
    {:path [:posture :elbow-flexion-deg] :label "肘屈曲" :unit "°" :min 0 :max 140 :step 1}
+   {:path [:posture :wrist-extension-deg] :label "手首伸展" :unit "°" :min 0 :max 45 :step 1}
    {:path [:posture :shoulder-abduction-deg] :label "肩外転（前額面）" :unit "°" :min 0 :max 90 :step 1}
    {:path [:posture :trunk-lateral-bend-deg] :label "体幹側屈（前額面）" :unit "°" :min -40 :max 40 :step 1}
    {:path [:posture :head-rotation-deg] :label "頭部回旋" :unit "°" :min -70 :max 70 :step 1}
