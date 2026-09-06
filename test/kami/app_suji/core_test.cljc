@@ -463,21 +463,33 @@
   ;; the page would have gone on saying whatever was typed; the pelvic-origin count
   ;; is why the rotation matters at all, since those are the muscles whose origins
   ;; and moment arms it moves.
-  (let [items (map flat-text (nodes :li (core/method-view core/initial-state)))
-        item-with (fn [label] (first (filter #(str/includes? % label) items)))
+  ;;
+  ;; ⚠ ASSERTED AS THE EXACT TEXT OF THE `<strong>` THAT CARRIES IT, and the first
+  ;; version was not. It asked `(str/includes? item "2")` and I broke it by
+  ;; hard-coding a THREE — and it passed, because the same sentence contains
+  ;; `T12/L1` and `T12` contains a 2. That is the identical defect
+  ;; `the-method-page-counts-agree-with-the-model` already records one screenful
+  ;; up: a hard-coded 7 survived because `10` occurs in `10% 以内`. Writing a test
+  ;; beside the note describing the bug is not the same as reading it.
+  (let [items (nodes :li (core/method-view core/initial-state))
+        item-with (fn [label] (first (filter #(str/includes? (flat-text %) label) items)))
+        ;; the exact reading of each [:strong …] in an element. A count checked by
+        ;; substring against the whole sentence is not checked.
+        strongs (fn [el] (set (map #(str/trim (flat-text %)) (nodes :strong el))))
         trunk (item-with "体幹の分節")
         pelvic (item-with "骨盤の回転")
         on-pelvis (filter #(= "pelvis" (:segment (:origin %))) (vals attachment/muscles))]
     (is (some? trunk) "the method page does not count the trunk segments")
-    (is (str/includes? trunk (str (count segment/trunk-bases)))
-        (str "suji names " (pr-str segment/trunk-bases) " and the item reads "
-             (pr-str trunk)))
+    (is (contains? (strongs trunk) (str (count segment/trunk-bases)))
+        (str "suji names " (pr-str (vec segment/trunk-bases)) " and the item's "
+             "emphasised figures are " (pr-str (strongs trunk))))
     (doseq [b segment/trunk-bases]
-      (is (str/includes? trunk b) (str b " is a trunk segment and is not named")))
+      (is (str/includes? (flat-text trunk) b)
+          (str b " is a trunk segment and is not named")))
     (is (some? pelvic) "the method page does not mention the pelvic rotation")
-    (is (str/includes? pelvic (str (count on-pelvis)))
-        (str (count on-pelvis) " muscle groups originate on the pelvis and the item"
-             " reads " (pr-str pelvic)))))
+    (is (contains? (strongs pelvic) (str (count on-pelvis)))
+        (str (count on-pelvis) " muscle groups originate on the pelvis and the "
+             "item's emphasised figures are " (pr-str (strongs pelvic))))))
 
 (deftest the-standing-comparison-is-the-models-numbers-and-its-caveat
   ;; Wilke's relaxed standing entry was REFUSED until the pelvis could rotate, and
