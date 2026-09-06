@@ -72,9 +72,21 @@
   by muscle and must not be drawn as though the muscles' quiet meant ease."
   200.0)
 
-(def quiet-muscle-pct
-  "Below this %MVC the muscles about a joint count as quiet."
-  8.0)
+(def maximum-voluntary-pct
+  "Where the top of the colour ramp anchors: 100 %MVC.
+
+  The top band's `:max-mvc-pct` is infinite, which is right for BANDING — there is
+  no band above `very-high` — and wrong for a ramp, because an infinite span makes
+  the interpolation coefficient zero and every value above 30 %MVC comes out as
+  exactly one colour. Measured 2026-09-07 with the corrected lumbar moment: the
+  trunk read heat 0.53 at 15°, 30°, 45° AND 60° of flexion, so the picture could
+  not tell 46.8 %MVC from 83.6 %MVC from 43.7 %MVC.
+
+  100 is not a chosen constant. It is the maximum voluntary contraction — the one
+  bound in this domain that is not arbitrary — and `muscle.cljc` deliberately does
+  not clamp there, so values above it exist and stay distinguishable at the ramp's
+  end rather than being folded into it."
+  100.0)
 
 (def ligament-rgb
   "Held by ligament, not by muscle. Distinct from every load colour and from the
@@ -112,11 +124,22 @@
         this (nth load-bands idx)
         prev-max (if (zero? idx) 0.0 (:max-mvc-pct (nth load-bands (dec idx))))
         nxt (nth load-bands (min (inc idx) (dec (count load-bands))))
-        span (- (:max-mvc-pct this) prev-max)
-        t (if (math/finite? span)
-            (math/clamp (/ (- mvc-pct prev-max) (max 1e-9 span)) 0.0 1.0)
-            0.0)]
-    (mapv #(lerp %1 %2 (* 0.65 t)) (:rgb this) (:rgb nxt))))
+        top? (not (math/finite? (:max-mvc-pct this)))
+        ;; The top band has no band above it, so it interpolates toward a MORE
+        ;; SATURATED red of its own across the rest of the voluntary range instead
+        ;; of standing still. Saturating rather than darkening, because the
+        ;; picture is read as red-minus-green and darkening lowers both channels
+        ;; together — measured: a deeper red made 76.6 %MVC read COOLER than
+        ;; 46.8 %MVC, which is the same inversion this whole state exists to
+        ;; prevent, arriving through the other door. See `maximum-voluntary-pct`.
+        span (if top?
+               (- maximum-voluntary-pct prev-max)
+               (- (:max-mvc-pct this) prev-max))
+        target (if top?
+                 (let [[r g b] (:rgb this)] [(min 1.0 (* 1.05 r)) (* 0.15 g) (* 0.15 b)])
+                 (:rgb nxt))
+        t (math/clamp (/ (- mvc-pct prev-max) (max 1e-9 span)) 0.0 1.0)]
+    (mapv #(lerp %1 %2 (* 0.65 t)) (:rgb this) target)))
 
 (defn segment-state
   "What this segment's colour is allowed to claim.
@@ -153,12 +176,26 @@
       ;; where the spine is most loaded. Measured 2026-09-06: the trunk's heat
       ;; went 0.39 -> 0.53 -> 0.10 across 15/30/45 deg of flexion, and the picture
       ;; said the worst posture was the easiest.
+      ;; THE CONDITION IS WHICH TISSUE CARRIES MORE, not whether the muscle went
+      ;; quiet. It used to be `max %MVC < 8`, which was true only because
+      ;; `lumbosacral-moment` understated the demand by about half: with the
+      ;; moment corrected on 2026-09-07 the erector spinae is still at 43.7 %MVC
+      ;; at 60° of flexion, so the "quiet" test could never fire again and this
+      ;; whole state became unreachable — a colour nothing could ever be.
+      ;;
+      ;; What survived the correction is the SHIFT. Measured at
+      ;; `laptop-on-lap` + trunk flexion: ligament 429 N against erector spinae
+      ;; 1398 N at 30°, then 1572 against 1367 at 45°, then 3989 against 635 at
+      ;; 60°. The crossing is the finding, and it is what a reader needs to see,
+      ;; because it changes what would unload the spine.
       (and (seq ligaments)
            (> (reduce + 0.0 (keep :force-n ligaments)) ligament-load-floor-n)
-           (< (apply max 0.0 vals) quiet-muscle-pct))
+           (> (reduce + 0.0 (keep :force-n ligaments))
+              (reduce + 0.0 (keep :force-n (remove :ligament? mine)))))
       {:kind :ligament
        :mvc-pct (when (seq vals) (apply max vals))
        :ligament-n (reduce + 0.0 (keep :force-n ligaments))
+       :muscle-n (reduce + 0.0 (keep :force-n (remove :ligament? mine)))
        :names (mapv :name ligaments)}
 
       (seq vals) {:kind :loaded :mvc-pct (apply max vals)}
@@ -312,6 +349,10 @@
              :mvc-pct mvc-pct
              :band (when mvc-pct (:band (band-for mvc-pct)))
              :ligament-n (:ligament-n st)
+             ;; carried alongside, because the :ligament state is now decided by
+             ;; comparing the two and a reader of the draw should be able to check
+             ;; that comparison rather than take it on trust
+             :muscle-n (:muscle-n st)
              :color (case kind
                       :loaded (ramp-rgb mvc-pct)
                       :ligament ligament-rgb
