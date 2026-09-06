@@ -655,8 +655,15 @@
          (check! "and leaves the thorax alone, which only trunk flexion may turn"
                  (and (d "thorax") (< (Math/abs (d "thorax")) 1e-9))
                  (str "the thorax turned by " (d "thorax")))
+         ;; ⚠ THE FIRST CLAUSE IS NOT REDUNDANT. Without it this held when NOTHING
+         ;; moved: measured 2026-09-09 by zeroing every rotation in the draw list,
+         ;; `0 = 0.5 * 0` and the check reported a pass for a picture that had
+         ;; stopped turning at all. A ratio between two quantities has to require
+         ;; that they are not both zero, or it certifies the one state it cannot
+         ;; distinguish from success.
          (check! "and the chord turns half as far as the pelvis, as the arc requires"
                  (and (d "pelvis") (d "lumbar")
+                      (> (Math/abs (d "pelvis")) 1e-6)
                       (< (Math/abs (- (Math/abs (d "lumbar"))
                                       (* 0.5 (Math/abs (d "pelvis")))))
                          1e-9))
