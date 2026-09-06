@@ -33,6 +33,7 @@
             [suji.methods.load :as load]
             [suji.methods.math :as math]
             [suji.methods.muscle :as muscle]
+            [suji.methods.pose :as pose]
             [suji.methods.spine :as spine]
             [suji.methods.strain :as strain]))
 
@@ -80,7 +81,26 @@
      (section-of "spine.level" rows)
      (section-of "spine.cervical-check"
                  [(spine/cervical-cross-check body posture tensions (:cervical loads))])
-     (section-of "spine.lumbar-check" [(spine/lumbar-cross-check)]))))
+     (section-of "spine.lumbar-check" [(spine/lumbar-cross-check)])
+     ;; --- the pelvis's degree of freedom, as the page's own posture holds it ----
+     ;; `lumbar-lordosis-deg` is a function of the CURRENT posture, so unlike the
+     ;; cross-check's copy it moves when the slider moves — which is the only way
+     ;; the differential probe can ask whether it is on the page at all. suji
+     ;; reports it as its own function rather than as `:pelvic-tilt-deg` precisely
+     ;; because the two stop being the same number the day the thorax stops holding
+     ;; the lumbar spine's upper end, so this reads the function.
+     (section-of "pose"
+                 [{:lumbar-lordosis-deg (pose/lumbar-lordosis-deg posture)
+                   :lumbar-chord-tilt-deg
+                   (pose/lumbar-chord-tilt-deg (get posture :trunk-flexion-deg 0.0)
+                                               (get posture :pelvic-tilt-deg 0.0))}])
+     ;; --- what the degree of freedom made comparable ---------------------------
+     ;; Wilke's relaxed standing entry was REFUSED for two different reasons on two
+     ;; different days, and stopped being refused when the pelvis learned to rotate.
+     ;; The app calls this now, so the census has to see it: a quantity the app
+     ;; computes and the census does not walk is exactly the hole this namespace
+     ;; exists to close.
+     (section-of "spine.sitting-standing" [(spine/sitting-standing-comparison)]))))
 
 ;; --- what suji would produce if the page asked -------------------------------
 
@@ -302,7 +322,12 @@
    :spine.lumbar-check/ratio             {:state :shown}
    :spine.lumbar-check/within-reference-spread? {:state :shown :token "基準の幅"}
    :spine.lumbar-check/citation          {:state :shown :token :from-value}
-   :spine.lumbar-check/direction         {:state :computed-not-shown}
+   ;; SHOWN since the standing/sitting table exists: that table's last column
+   ;; branches on `:direction`, so `外（模型が低い）` is on the page only while the
+   ;; model is below this reference. It is a weaker check than a number — the token
+   ;; convention — but it is falsifiable: the day the model crosses the reference
+   ;; the page says `高い` and this token stops being found.
+   :spine.lumbar-check/direction         {:state :shown :token "外（模型が低い）"}
    :spine.lumbar-check/level             {:state :shown :token :from-value}
    :spine.lumbar-check/model-disc-area-mm2 {:state :shown}
    :spine.lumbar-check/model-ligament-n  {:state :computed-not-shown}
@@ -322,7 +347,51 @@
    :spine.lumbar-check/reference-pressure-mpa {:state :shown}
    :spine.lumbar-check/subject           {:state :shown}
    :spine.lumbar-check/url               {:state :shown :token :from-value}
-   :spine.lumbar-check/validated         {:state :computed-not-shown}})
+   :spine.lumbar-check/validated         {:state :computed-not-shown}
+   ;; --- the two keys suji 3d494ba added to the cross-check --------------------
+   ;; They arrived because the pelvis learned to rotate: the reference posture now
+   ;; carries a lordosis, and that lordosis is an input Wilke's paper does not
+   ;; state. `every-quantity-the-model-produces-is-classified` failed on both the
+   ;; moment the pin moved, which is the census doing its job.
+   ;;
+   ;; `lumbar-lordosis-deg` gets its COLUMN'S LABEL rather than its digits, and
+   ;; deliberately: the default reference is Wilke's stool, whose lordosis is
+   ;; exactly 0.0, and `significant?` rejects every rendering of zero on purpose —
+   ;; `0.00` is on the page for a hundred unrelated reasons. What can be probed is
+   ;; that the column is there, and its heading is the text that disappears when it
+   ;; goes. The same quantity for the CURRENT posture is `:pose/lumbar-lordosis-deg`
+   ;; below, which moves with the slider and is probed by difference.
+   :spine.lumbar-check/lumbar-lordosis-deg {:state :shown :token "入れた前弯"}
+   ;; the note, the parameter's own name and its provenance id, all as the model
+   ;; wrote them — `string-values` and `keyword-strings` reach into the map
+   :spine.lumbar-check/parameter-not-in-source {:state :shown :token :from-value}
+
+   ;; --- the pelvis's degree of freedom at the posture on screen ---------------
+   :pose/lumbar-lordosis-deg             {:state :shown}
+   :pose/lumbar-chord-tilt-deg           {:state :shown}
+
+   ;; --- standing against sitting, comparable for the first time ---------------
+   :spine.sitting-standing/model-difference-n     {:state :shown}
+   :spine.sitting-standing/reference-difference-n {:state :shown}
+   :spine.sitting-standing/difference-ratio       {:state :shown}
+   :spine.sitting-standing/same-direction?        {:state :shown :token "向きは一致する"}
+   ;; the model's own sentence about why the agreement in direction proves nothing.
+   ;; `:from-value` means the page has to carry it verbatim, so it goes stale the
+   ;; day suji rewords it — which is the day it should.
+   :spine.sitting-standing/direction-is-not-evidence {:state :shown :token :from-value}
+   :spine.sitting-standing/validated              {:state :shown :token :from-value}
+   :spine.sitting-standing/model-validated?       {:state :shown
+                                                   :token "この模型は検証されていない"}
+   ;; ⚠ THE TWO CROSS-CHECK MAPS THEMSELVES ARE NOT SHOWN, and saying so is more
+   ;; honest than claiming them. The page reaches INTO each of them for five
+   ;; numbers — model force, reference force, ratio, lordosis, which side of the
+   ;; spread — and renders none of the other twenty-odd fields either map carries.
+   ;; A `:shown` claim on the whole map would demand every number in it be findable,
+   ;; and the constant probe would then be satisfied by a page showing a fraction
+   ;; of it if the rest happened to collide. The same reading `:summary/frontal`
+   ;; gets: a copy carried along, and nothing renders THAT copy.
+   :spine.sitting-standing/sitting                {:state :computed-not-shown}
+   :spine.sitting-standing/standing               {:state :computed-not-shown}})
 
 ;; --- reading the page ---------------------------------------------------------
 
@@ -497,28 +566,48 @@
 
 (defn- string-values
   "The distinct strings a quantity takes. A `:muscle-crossing` entry is a vector
-  of `[name force]` pairs, so the names are reached rather than the pair printed."
+  of `[name force]` pairs, so the names are reached rather than the pair printed.
+
+  ⚠ AND A MAP'S VALUES ARE REACHED TOO, for the same reason `numbers-in` reaches
+  them: a quantity is not always a scalar. `:parameter-not-in-source` — the input a
+  reference's own source does not state — is a map carrying the parameter's name,
+  its provenance and the paragraph explaining where the value came from, and every
+  one of those is something the page has to carry or it is showing a comparison
+  without showing what was assumed to make it. Read shallowly rather than
+  recursively: one level is what the model produces, and a deep walk would start
+  demanding strings out of structures nobody renders.
+
+  This STRENGTHENS the probe — every needle found here must appear on the page —
+  which is why it is safe to widen. Widening `needle-forms` would be the opposite."
   [values]
-  (into #{}
-        (comp (mapcat (fn [v]
-                        (cond
-                          (string? v) [v]
-                          (sequential? v) (keep #(cond (string? %) %
-                                                       (sequential? %) (first %))
-                                                v)
-                          :else nil)))
-              (filter string?)
-              (map normalise)
-              (filter #(<= 4 (count %))))
-        values))
+  (let [strs (fn strs [v]
+               (cond
+                 (string? v) [v]
+                 (map? v) (filter string? (vals v))
+                 (sequential? v) (keep #(cond (string? %) %
+                                              (sequential? %) (first %))
+                                       v)
+                 :else nil))]
+    (into #{}
+          (comp (mapcat strs)
+                (filter string?)
+                (map normalise)
+                (filter #(<= 4 (count %))))
+          values)))
 
 (defn- keyword-strings
   "A keyword value as the page writes it — `hip/left`, not `left`. The qualifier is
   half the identity in a bilateral model, so `name` would make the two sides of the
-  body indistinguishable."
+  body indistinguishable.
+
+  Reaches one level into a map, for the reason `string-values` gives: the parameter
+  a reference does not state names ITSELF (`pelvic-tilt-deg`) and names where its
+  value came from (`cho-2015-stool`), and a page that prints the note without
+  printing the provenance has shown the excuse and not the source."
   [values]
   (into #{}
         (comp (mapcat (fn [v] (cond (keyword? v) [v]
+                                    (map? v) (filter keyword? (vals v))
                                     (sequential? v) (filter keyword? v)
                                     :else nil)))
               (map #(subs (str %) 1))

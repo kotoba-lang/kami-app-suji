@@ -42,10 +42,11 @@
   2, which is neither the 0 of a pass nor the 1 of a failure, so `could not answer`
   is distinguishable from both.
 
-  Forty-five is one below the count on the day it landed. It has to move when the
+  Forty-five was one below the count on the day it landed; sixty-five is one below
+  the count after the pelvic-tilt work (66 on 2026-09-09). It has to move when the
   suite grows, which makes removing a namespace a deliberate edit here rather than
   a number quietly going down."
-  45)
+  65)
 
 (defmethod cljs.test/report [:cljs.test/default :end-run-tests] [m]
   (let [{:keys [test pass fail error]} m]

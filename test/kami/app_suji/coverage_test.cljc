@@ -51,7 +51,15 @@
        (assoc-in [:posture :shoulder-abduction-deg] 80.0)
        (assoc-in [:posture :head-rotation-deg] 60.0))
    (assoc core/initial-state :posture
-          (:posture (first (filter #(= :standing (:group %)) core/presets))))])
+          (:posture (first (filter #(= :standing (:group %)) core/presets))))
+   ;; ⚠ AND ONE WITH THE PELVIS TILTED, which is the seventh and the reason it is
+   ;; here. `:pose/lumbar-lordosis-deg` is zero at every other posture in this list
+   ;; — every preset suji ships states no pelvic tilt — and `significant?` rejects
+   ;; every rendering of zero on purpose, so the differential has nothing to look
+   ;; for. Without this state the two pose quantities come back `:inconclusive`,
+   ;; which `every-shown-quantity-is-actually-on-the-page` treats as a failure and
+   ;; not as a pass: a claim nobody can check is not a claim that has been checked.
+   (assoc-in core/initial-state [:posture :pelvic-tilt-deg] 25.0)])
 
 (defn- render-views [state views]
   (map #(core/app (assoc state :view %)) views))
