@@ -153,6 +153,22 @@
   neither — it is 'not answered'."
   [0.42 0.35 0.62])
 
+(def inactive-rgb
+  "A muscle a COUPLED group switched off, new with `recruit/solve` on 2026-09-08.
+
+  ⚠ WITHOUT IT THESE MUSCLES WERE DRAWN AS LIGHTLY LOADED. An inactive muscle is
+  answered rather than refused — the optimum computed its force and it is zero —
+  so it carries `:mvc-pct 0.0`, and `ramp-rgb 0.0` is the bottom of the load ramp.
+  Eleven muscle lines at the default posture were being painted the colour that
+  means `carrying a little` when the answer is `not recruited at all`, and there
+  was no way to tell them from a muscle at 1 %MVC.
+
+  Darker than the antagonist colour and unmistakably not on the ramp. The two are
+  neighbours in meaning — neither is loaded — but they are different answers: an
+  antagonist is REFUSED because a static optimum does not co-contract, and this
+  one was priced and came out at zero."
+  [0.22 0.24 0.30])
+
 (defn band-for
   "The load band a %MVC falls in, or nil when there is no %MVC.
 
@@ -208,6 +224,7 @@
 
   The order is the order they are decided in `muscle-draws`."
   [[antagonist-rgb "拮抗筋 —— 動けるが、いまは反対側が荷重を担っている"]
+   [inactive-rgb "無活動 —— 連立解が切った（力は 0、計算していないのではない）"]
    [refused-rgb "適用範囲外（計算していない）"]
    [ligament-rgb "靭帯が担っている（筋は沈黙）"]
    [unloaded-rgb "この関節を通る筋がモデルに無い（分節）／%MVC を持たない（筋の線）"]])
@@ -498,9 +515,16 @@
             :mvc-pct pct
             :refused (:refused t)
             :antagonist? (:antagonist? t)
+            :inactive? (:inactive? t)
+            ;; ORDER IS MEANING. `:inactive?` is tested BEFORE the ramp because an
+            ;; inactive muscle has a %MVC — of zero — and `ramp-rgb` happily paints
+            ;; zero as the bottom of the load scale. It sits after `:refused` and
+            ;; `:antagonist?` because those are the older, narrower statements and
+            ;; a row cannot be both.
             :color (cond
                      (:antagonist? t) antagonist-rgb
                      (:refused t) refused-rgb
+                     (:inactive? t) inactive-rgb
                      pct (ramp-rgb pct)
                      :else unloaded-rgb)
             :transform {:translation (math/vmid origin insertion)

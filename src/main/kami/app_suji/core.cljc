@@ -13,6 +13,7 @@
   comparison is one body across setups, never one person against another."
   (:require [clojure.string :as str]
             [jp-go-dds.core :as dds]
+            [kami.app-suji.coverage :as coverage]
             [kami.app-suji.route :as route]
             [kami.app-suji.scene :as scene]
             [suji.methods.math :as math]
@@ -150,7 +151,137 @@
    [:div {:class "suji-figure"} value [:span {:class "suji-unit"} " " unit]]
    [:div {:class "suji-unit"} label]])
 
+(defn joint-name
+  "A joint key as the page writes it. `(name :hip/left)` is `left`, which loses
+  the joint; the qualifier is half the identity in a bilateral model, so the whole
+  keyword is printed minus its colon."
+  [j]
+  (if (keyword? j) (subs (str j) 1) (str j)))
+
+(defn arms-label
+  "A muscle's moment arms about every joint its solve constrained, in millimetres.
+
+  ONE ROW OF THE CONSTRAINT MATRIX, which is what `:coeffs` is. The muscle table's
+  `モーメントアーム` column shows only the arm about the muscle's own joint, so a
+  two-joint muscle's second column of the matrix — the reason the coupled solve
+  exists — had nowhere to appear."
+  [t]
+  (if-let [cs (seq (sort-by (comp str key) (:coeffs t)))]
+    (str/join " / " (for [[j c] cs]
+                      (str (joint-name j) " " (math/fmt-fixed (* 1000.0 c) 1))))
+    "—"))
+
 ;; --- views -------------------------------------------------------------------
+
+(defn solve-card
+  "What the solve says about itself.
+
+  WHY THIS EXISTS AT ALL. `suji` moved to `recruit/solve` on 2026-09-08 — one
+  optimisation over several equilibria instead of one per joint — and everything
+  it says about its own answer arrived with it: which muscles were solved together,
+  whether the Newton iteration converged, the equilibrium error left at each joint,
+  the price that decides which muscles are switched off, and which second joints
+  are still fed by nothing. A coverage census of this app measured every one of
+  those as computed and not shown. The forces changed a great deal at the same
+  moment — 22.1 to 39.2 %MVC at the cervical extensors — and the page had no way
+  to say what had changed or whether the new numbers satisfied anything.
+
+  THE RESIDUAL IS THE POINT OF IT. An unconverged group refuses outright, so every
+  number on this page comes from a solve that claims to have satisfied its
+  equilibria; `:coupled-residual-nm` is that claim in newton-metres, and printing
+  it is the difference between a reader who can check and one who has to believe.
+  It is reported in picoNewton-metres because it is zero to floating point — at
+  1e-11 N·m every fixed-decimal rendering in newton-metres is `0.00`, and a column
+  of zeros says `not measured` as loudly as it says `balanced`."
+  [tensions loads]
+  (let [s (muscle/tension-summary tensions loads)
+        coupled (filterv :coupled-group tensions)
+        groups (sort-by (comp str first)
+                        (group-by (juxt :coupled-group :coupled-joints) coupled))
+        two-joint (filterv :crosses-joint tensions)
+        residual (or (:coupled-residual-nm s) {})
+        unfed (or (:two-joint-unfed-nm s) {})
+        joints (sort-by str (into (set (keys residual)) (keys unfed)))]
+    (dds/card
+     (dds/heading 3 "連立解 —— 解が自分について言っていること")
+     [:p {:class "suji-note"}
+      "2026-09-08 まで、この模型は関節を 1 つずつ解いていた。2 関節筋は片方の"
+      "平衡で解かれ、もう片方に及ぼすモーメントは" [:strong "報告されるだけ"]
+      "だった。いまは首の 2 関節と片脚の 3 関節がそれぞれ 1 つの最適化として同時に"
+      "解かれる。下の残差はその平衡が実際に満たされているかで、"
+      [:strong "読み手が確かめられる形にするためにここに出す"] "。"]
+     [:div {:class "dds-ext-row"}
+      (figure (str (:total s)) "" "筋・靭帯の行数")
+      (figure (str (:refused s)) "" "拒否（計算していない）")
+      (figure (str (:antagonists s)) "" "拮抗（反対側が担っている）")
+      (figure (str (:inactive s)) "" "無活動（最適解が切った）")
+      (figure (str (:over-mvc s)) "" "最大随意収縮を超過")
+      (figure (str (:coupled-not-converged s)) "" "収束しなかった行")
+      (figure (if (:complete? s) "すべて配置" "一部未配置") "" "荷重の配置")]
+     (dds/table
+      {:headers ["群" "同時に満たした関節" "収束" "構成する筋" "うち無活動"]
+       :rows (mapv (fn [[[gid gjoints] members]]
+                     [(name gid)
+                      (str/join " · " (map joint-name gjoints))
+                      (if (every? :coupled-converged? members) "収束した" "収束せず")
+                      (str (count members))
+                      (str (count (filter :inactive? members)))])
+                   groups)})
+     [:p {:class "suji-note"}
+      "残差は Σ(モーメントアーム × 力) − 荷重 を、その関節について、"
+      "元の荷重に対して受動張力込みで取ったもの。単位は "
+      [:strong "pN·m（10⁻¹² N·m）"] " —— N·m で小数を並べると全部 0.00 になり、"
+      "「釣り合っている」と「測っていない」が同じ顔をするため。"
+      "「どの式にも入っていない」列は、その関節を跨ぐ筋が及ぼしているのに"
+      "この模型がどの平衡にも渡していないモーメントで、"
+      [:strong "連立で消えた分ではなく、まだ残っている分"] "である。"]
+     (dds/table
+      {:headers ["関節" "連立の残差" "どの式にも入っていないモーメント"]
+       :rows (mapv (fn [j]
+                     [(joint-name j)
+                      (if (contains? residual j)
+                        (str (math/fmt-fixed (* 1.0e12 (get residual j)) 3) " pN·m")
+                        "—")
+                      (if (contains? unfed j)
+                        (str (math/fmt-fixed (get unfed j) 3) " N·m")
+                        "—")])
+                   joints)})
+     (when (seq two-joint)
+       [:div
+        [:p {:class "suji-note"}
+         "2 関節筋の「もう一方の関節」。"
+         [:strong "連立で解いた"] "ものは、その関節の平衡がこの筋の力を知っている。"
+         [:strong "解いていない"] "ものは知らない —— そのモーメントは上の表の右列に"
+         "積まれている。c2c3 に何も無いのは分節化の不足ではなく出典の不足である。"]
+        (dds/table
+         {:headers ["筋" "もう一方の関節" "モーメントアーム" "そこで出しているモーメント" "扱い"]
+          :rows (mapv (fn [t]
+                        [(str/replace (:name t) "_" " ")
+                         (joint-name (:crosses-joint t))
+                         (str (math/fmt-fixed (* 1000.0 (:secondary-arm-m t)) 1) " mm")
+                         (str (math/fmt-fixed (or (:secondary-moment-nm t) 0.0) 3) " N·m")
+                         (if (:secondary-fed? t) "連立で解いた" "解いていない")])
+                      two-joint)})])
+     (when (seq coupled)
+       [:div
+        [:p {:class "suji-note"}
+         "各筋が連立のどこに入ったか。"
+         [:strong "価格"] "（KKT 乗数と自分の係数の内積、10⁻⁶ 単位）が負の筋は"
+         "最適解が切る —— 動かしてもどの関節の役にも立たず、コストだけ上がるため。"
+         "これは「計算できなかった」ではなく「計算した結果 0」である。"
+         "「自関節の荷重」はこの筋の関節に与えられた元のモーメント。"]
+        (dds/table
+         {:headers ["筋" "群" "自関節の荷重" "関節ごとのモーメントアーム (mm)" "価格 ×10⁻⁶" "状態"]
+          :rows (mapv (fn [t]
+                        [(str/replace (:name t) "_" " ")
+                         (name (:coupled-group t))
+                         (str (math/fmt-fixed (or (:task-load-nm t) 0.0) 3) " N·m")
+                         (arms-label t)
+                         (if (number? (:price t))
+                           (math/fmt-fixed (* 1.0e6 (:price t)) 3)
+                           "—")
+                         (if (:inactive? t) "無活動" "活動")])
+                      coupled)})]))))
 
 (defn simulate-view [state]
   (let [{:keys [loads tensions strains scene]} (solved state)
@@ -195,12 +326,19 @@
                 [:span {:class "suji-swatch" :style {:background (rgb-css rgb)}}]
                 label])))
       (let [f (:frontal loads)
-            fl (math/abs* (:lumbosacral-nm f 0.0))
-            fs (math/abs* (get-in f [:shoulder-per-side :left] 0.0))]
-        (when (or (> fl 0.5) (> fs 0.5))
+            fl (:lumbosacral-nm f 0.0)
+            fs (get-in f [:shoulder-per-side :left] 0.0)]
+        ;; SIGNED, though the threshold that decides whether to say anything is
+        ;; not. The magnitude answers `how much` and the sign answers `which way`,
+        ;; and this line printed `(abs …)` until 2026-09-08 — so a trunk bent 35°
+        ;; left and one bent 35° right put the identical sentence on the page. The
+        ;; coverage probe is what found it: it looks for the model's own value and
+        ;; the model's own value was −67.24 N·m where the page said 67.24.
+        (when (or (> (math/abs* fl) 0.5) (> (math/abs* fs) 0.5))
           [:p {:class "suji-note"}
            "前額面のモーメント —— L5/S1 " [:strong (str (math/fmt-fixed fl 2) " N·m")]
-           "、肩（片側）" [:strong (str (math/fmt-fixed fs 2) " N·m")]
+           "、肩（左）" [:strong (str (math/fmt-fixed fs 2) " N·m")]
+           "（符号は向き —— 正負が左右の別である）"
            "。腰方形筋・腹斜筋・中部三角筋・広背筋・斜角筋が担う。"
            "これらの筋は 2026-09-06 に足したもので、それ以前この荷重は"
            "「担う筋がモデルに無い」として報告されていた。"]))]
@@ -224,8 +362,17 @@
         (figure (math/fmt-fixed (:ground-reaction-per-foot-n sup) 0) "N" "床反力（片足）")
         (figure (math/fmt-fixed (:body-weight-n sup) 0) "N" "体重")]
        (when (= :standing (:mode sup))
+         ;; BOTH branches in a `<strong>`, and not only the alarming one. The value
+         ;; is `:cop-inside-base?` either way; emphasising one side made the page
+         ;; carry the answer as a plain word in a sentence when it was `inside`,
+         ;; which is indistinguishable from the sentence not stating it at all —
+         ;; the coverage probe could not find it, and neither could a reader
+         ;; scanning for the figure.
          [:p {:class "suji-note"}
-          "圧力中心は" (if (:cop-inside-base? sup) "支持基底内" [:strong "支持基底の外"])
+          "圧力中心は"
+          (if (:cop-inside-base? sup)
+            [:strong "支持基底内"]
+            [:strong "支持基底の外"])
           "。モデルはこれを拒否せず報告する —— 支持基底の外に重心がある姿勢は"
           "静止していられないが、それは力学の帰結であって入力の誤りではない。"]))
       (dds/card
@@ -241,9 +388,18 @@
           "靭帯は筋ではない —— 収縮しないので %MVC を持たず、関節が既にそこまで運ばれて"
           "初めて張る。深い体幹前屈では脊柱起立筋が電気的に沈黙し、"
           [:strong "後方靭帯系が荷重を引き受ける"] "（屈曲弛緩）。"
-          (when (some :at-limit? ls)
+          ;; STATED IN BOTH DIRECTIONS. `:at-limit?` used to reach the page only
+          ;; when it was true, so `no warning` and `nobody asked` looked the same —
+          ;; and the difference matters, because the second means the force beside
+          ;; it may be an extrapolation nobody checked. Measured 2026-09-08: no
+          ;; ligament reaches its calibration limit anywhere these sliders go
+          ;; (posterior lumbar ligaments read 3,989 N at 60° of trunk flexion and
+          ;; are still inside it), so the warning branch was unreachable and the
+          ;; page said nothing about the check at all.
+          (if (some :at-limit? ls)
             [:strong "⚠ 一部の靭帯は較正範囲を超えて伸ばされており、表示中の力は"
-             "外挿ではなく打ち切った値である。"])])
+             "外挿ではなく打ち切った値である。"]
+            [:strong "いま表示中の靭帯はすべて較正範囲内にある。"])])
        [:p {:class "suji-note"}
         "「出せる力」はその筋が" [:strong "この姿勢の長さで"]
         "出せる力（PCSA × 比張力 × Hill の力‑長さ係数）。%MVC の分母はこれであって"
@@ -280,8 +436,19 @@
                             (str (math/fmt-fixed (:mvc-pct t) 1) " %"
                                  (when (:over-mvc? t) " ⚠"))
                             (if (:ligament? t) "靭帯（収縮しない）" "—"))
-                          (or (:band (scene/band-for (:mvc-pct t)))
-                              (if (:ligament? t) "靭帯" "—"))
+                          ;; ⚠ A THIRD ANSWER, since the coupled solve. A muscle
+                          ;; the optimum switches off comes back with a FORCE of
+                          ;; zero and a %MVC of zero — not refused, because the
+                          ;; model did compute it — and `band-for 0.0` is `low`.
+                          ;; So eleven muscles at the default posture were being
+                          ;; banded as lightly loaded when the answer is that they
+                          ;; are not recruited at all. `low` and `off` are not the
+                          ;; same claim and the difference is the whole content of
+                          ;; `:inactive?`.
+                          (cond
+                            (:inactive? t) "無活動（最適解が切っている）"
+                            (:ligament? t) "靭帯"
+                            :else (or (:band (scene/band-for (:mvc-pct t))) "—"))
                           (str (strain/stiffness-band (:stiffness-index st))
                                (when (:saturated? st) "（飽和）"))]))
                      tensions strains)})
@@ -292,15 +459,26 @@
        ;; explanation would keep naming the first after the second became the only
        ;; one that happens. Measured 2026-09-06: wrapping surfaces removed every
        ;; leverage-floor refusal, and the hardcoded sentence went on citing them.
-       (when-let [r (seq (filter :refused tensions))]
+       ;; ⚠ THIS BLOCK ASKED `:refused` AND SO DROPPED ELEVEN EXPLANATIONS. The
+       ;; coupled solve writes a `:note` on every muscle it switches off — "the
+       ;; coupled optimum switches this muscle off here: its price at the solved
+       ;; multipliers is -0.000444, so activating it would raise the cost without
+       ;; helping any of [:c7 :atlanto-occipital]" — and at the default posture
+       ;; eleven rows carry one while only four are refused. Asking for the note
+       ;; rather than for the reason is the same correction `numeric-mvc?` records
+       ;; for the %MVC column: a site that branches on which reason it is has to be
+       ;; revisited every time a new reason appears, and this one was not.
+       (when-let [r (seq (filter #(and (:note %) (or (:refused %) (:inactive? %)))
+                                 tensions))]
          (into [:div]
                (for [t r]
                  [:p {:class "suji-note"}
                   [:strong (str/replace (:name t) "_" " ")]
-                  " の力を計算していない（" (name (:refused t)) "）—— " (:note t)])))
-       (when-not (:complete? (muscle/tension-summary tensions loads))
-         [:p {:class "suji-note"}
-          "この結果は不完全である —— 荷重の一部はどの筋にも割り当てられていない。"]))]]))
+                  (if (:refused t)
+                    (str " の力を計算していない（" (name (:refused t)) "）—— ")
+                    " は最適解が切っている（力は 0 N、計算していないのではない）—— ")
+                  (:note t)]))))
+      (solve-card tensions loads)]]))
 
 (defn compare-view [state]
   (let [body (body-of state)]
@@ -418,12 +596,15 @@
   about once an hour. Anything derivable is derived, so the page cannot make a
   false claim about a count without the count being false."
   [state]
-  (let [{:keys [tensions loads]} (solved state)
+  (let [sol (solved state)
+        {:keys [tensions loads]} sol
         body (body-of state)
         wrapped (count (filter :wrap (vals attachment/muscles)))
         frontal (sort (map :name (filter #(= :frontal (:axis %)) (vals attachment/muscles))))
         cerv (spine/cervical-cross-check body (:posture state) tensions (:cervical loads))
         lumbar (spine/lumbar-cross-check)
+        census (coverage/census body (:posture state) sol)
+        counts (:counts census)
         dose strain/model-form]
     [:div {:class "dds-ext-container"}
      (dds/section {}
@@ -466,6 +647,31 @@
        [:li "モーメントアームは筋の起始・停止から幾何で計算する（定数表ではない）。"]
        [:li "骨は解剖学的メッシュで描く（円柱ではない）。筋は線のまま —— "
             "モデルが断面を持たないので、太さを描けばそれは装飾である。"]]
+
+      (dds/heading 3 "モデルが出した量のうち、何がこのページに出ているか")
+      [:p {:class "suji-note"}
+       "この 3 つの数も一覧も" [:strong "モデルを歩いて数えている"]
+       " —— `suji` が量を 1 つ増やしてこのページが何もしなければ、"
+       "「出していない」の数が 1 増える。"
+       "既定の姿勢で 1 回解いた結果に対して数えたもので、"
+       "姿勢によって存在しない量（拒否の理由、靭帯の較正状態）はその姿勢の数に入らない。"]
+      (dds/table
+       {:headers ["状態" "件数" "意味"]
+        :rows [["出している" (str (:shown counts))
+                "いずれかの view がこの値をページに書いている"]
+               ["出していない" (str (:computed-not-shown counts))
+                "この app の解が計算していて、どの view も読んでいない"]
+               ["訊いていない" (str (:not-computed counts))
+                (str "`suji` が答えを持っているが、この app が呼んでいない入口の分"
+                     "（下限 —— 数えているのは "
+                     (count coverage/unrequested-probes) " 個の入口だけ）")]]})
+      [:p {:class "suji-note"}
+       [:strong "出していない量："]
+       (str/join "、" (map #(str (namespace %) "/" (name %))
+                           (:computed-not-shown census)))]
+      [:p {:class "suji-note"}
+       [:strong "訊いていない入口："]
+       (str/join "、" (sort (map name (keys coverage/unrequested-probes))))]
 
       (dds/heading 3 "持久モデルの出自")
       [:p {:class "suji-note"}
