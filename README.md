@@ -53,11 +53,15 @@ PW_CHANNEL=chrome npm run verify:browser
 
 | 何を | どう | 結果 |
 |---|---|---|
-| scene / route（純 `.cljc`） | `clojure -M:test` | 10 tests / 86 assertions |
-| 実ブラウザ | `scripts/verify-browser.cljs` | 8 checks |
-| lint | `clojure -M:lint` | 0 errors |
+| scene / route（純 `.cljc`） | `clojure -M:test` | 17 tests / 126 assertions |
+| 実ブラウザ | `scripts/verify-browser.cljs` | 16 checks |
+| lint | `clojure -M:lint` | 0 errors / 0 warnings |
 
-ブラウザ側の 8 つは、コンパイラにもテストにも見えないものだけを見る:
+⚠ **この表は 2026-09-06 まで初回の値（10 / 86 / 8）のまま止まっていた。** 更新している
+つもりで書いた置換が一致せず、黙って何もしていなかった —— 一致を検証しない編集は、
+編集しなかったことと区別がつかない。数を書くならその場で測ること。
+
+ブラウザ側の検査は、コンパイラにもテストにも見えないものだけを見る:
 
 1. **GPU backend を実際に取れたか。** `init-canvas!` は WebGPU から WebGL 2.0 へ
    黙って落ちる。落ちた app と落ちなかった app は見た目が同じなので、ページが
