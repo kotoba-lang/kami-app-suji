@@ -16,11 +16,21 @@
         ;; the UI has to show that rather than a number.
         io.github.cloud-itonami/suji
         {:git/url "https://github.com/cloud-itonami/suji.git"
-         ;; 1af4590 gives the atlanto-occipital joint its FLEXORS (longus_capitis,
-         ;; rectus_capitis_anterior). Two new groups reach `joint-muscles`, and the
-         ;; guard test below is what makes forgetting them unshippable rather than
-         ;; invisible.
-         :git/sha "1af4590fd0eb806c7d17729d218cdde5d1ba9fea"}
+         ;; 101987a is `recruit/solve` — Crowninshield–Brand over SEVERAL equality
+         ;; constraints at once, one dual variable per joint. It closes the gap this
+         ;; app's README called the largest one it had: a two-joint muscle used to
+         ;; be solved at one joint with its moment at the other only REPORTED.
+         ;;
+         ;; ⚠ IT CHANGES A MEANING WITHOUT CHANGING A NAME, which is why the pin
+         ;; moved inside a coverage measurement rather than beside it. `:coeff` is
+         ;; now the raw signed moment arm about the muscle's own joint for a coupled
+         ;; row, so atlanto-occipital flexors and lower-limb antagonists are negative
+         ;; where they were positive; and `:refused` reaches far fewer rows, because
+         ;; a muscle that used to come back `:acts-the-wrong-way` with no %MVC now
+         ;; carries a force of zero and `:inactive? true` — computed and idle, not
+         ;; declined. Seven keys went away with the closed form and six arrived with
+         ;; the coupled one. See `kami.app-suji.coverage`.
+         :git/sha "101987af7725d88d5709405005723cebda3585c7"}
 
         ;; デジタル庁デザインシステム — the workspace's base design system
         ;; (owner decision 2026-08-05). App CSS is written to the --hig-* token

@@ -427,27 +427,31 @@
       (is (neg? (arm "rectus_capitis_anterior")))
       (is (pos? (arm "rectus_capitis_posterior_major"))))))
 
-(deftest the-upper-cervical-flexors-carry-nothing-this-app-can-reach
-  ;; THE RESULT, RECORDED RATHER THAN FIXED. The flexors take force exactly when
-  ;; the skull's centre of mass is behind the occipital condyles — a head tipped
-  ;; BACK. This app's head-flexion and trunk-flexion sliders both start at 0, so
-  ;; the head's tilt from vertical is non-negative everywhere in the reachable
-  ;; space and the flexors are asked for nothing in all of it.
+(deftest the-upper-cervical-flexors-are-solved-with-the-extensors-not-after-them
+  ;; ⚠ THIS TEST SAID THE OPPOSITE UNTIL 2026-09-08, and it was right when it was
+  ;; written. It was called `the-upper-cervical-flexors-carry-nothing-this-app-can-
+  ;; reach` and it asserted zero force at every corner of the reachable box, on the
+  ;; reasoning that a flexor takes load only when the skull's centre of mass sits
+  ;; behind the condyles — a head tipped back, which these sliders cannot reach.
   ;;
-  ;; That is a statement about the SLIDERS, not about the muscles, and widening a
-  ;; slider to make a newly added muscle carry something would be arranging the
-  ;; evidence. So the fact is pinned here instead: if the head-flexion slider ever
-  ;; goes negative — for a headrest or a look-up posture, which are real things a
-  ;; workstation model might want — this test fails and the person changing it has
-  ;; to say so.
+  ;; That reasoning belonged to the CLOSED FORM. `recruit/share` solved one
+  ;; equilibrium at a time, so the flexion side of the atlanto-occipital joint was
+  ;; a separate task with its own load, and that load was gravity's alone. With
+  ;; `recruit/solve` the two neck joints are one system: the extensors sized at C7
+  ;; over-extend the joint above them, and the optimum answers by giving the
+  ;; flexors force. Measured at head 0 / trunk 30: longus capitis 2.85 N, 2.58 %MVC.
+  ;;
+  ;; So the old assertion did not detect a regression — it recorded a property of a
+  ;; solver that has been replaced. What is worth pinning is the STRUCTURE that
+  ;; replaced it: these muscles are members of the coupled neck group, the group
+  ;; converged, and their own-joint coefficient is negative because `:coeff` is now
+  ;; a raw signed arm rather than one turned to face its task.
   (let [head (first (filter #(= [:posture :head-flexion-deg] (:path %)) core/controls))
         trunk (first (filter #(= [:posture :trunk-flexion-deg] (:path %)) core/controls))]
     (is (= 0 (:min head))
         (str "the head-flexion slider starts at 0, so this app cannot reach a head "
              "tipped back: " head))
     (is (= 0 (:min trunk)) (str "and neither can the trunk: " trunk))
-    ;; the corners of the reachable box, plus the middle, all give the flexors
-    ;; nothing — and NOT a refusal, which would mean the model could not answer
     (doseq [h [(:min head) 30 (:max head)]
             t [(:min trunk) 30 (:max trunk)]]
       (let [st (-> core/initial-state
@@ -457,6 +461,20 @@
         (doseq [m ["longus_capitis" "rectus_capitis_anterior"]]
           (is (nil? (:refused (by m)))
               (str m " at head " h " trunk " t " must not be refused: " (by m)))
-          (is (math/nearly= 0.0 (or (:active-n (by m)) 0.0) 1e-12)
-              (str m " at head " h " trunk " t
-                   " is asked for nothing anywhere this app can reach: " (by m))))))))
+          (is (= :neck (:coupled-group (by m)))
+              (str m " is solved in the coupled neck group: " (by m)))
+          (is (= [:c7 :atlanto-occipital] (:coupled-joints (by m)))
+              (str m " spans both neck constraints: " (by m)))
+          (is (true? (:coupled-converged? (by m)))
+              (str m " at head " h " trunk " t " came from a converged solve: " (by m)))
+          (is (neg? (:coeff (by m)))
+              (str m "'s own-joint coefficient is the raw signed arm, which is "
+                   "negative for a flexor: " (by m))))))
+    ;; the change itself, stated as a number rather than as a direction: somewhere
+    ;; in the reachable box these muscles now take force, which is what the old
+    ;; assertion denied.
+    (let [st (assoc-in core/initial-state [:posture :trunk-flexion-deg] 30.0)
+          by (into {} (map (juxt :name identity)) (:tensions (core/solved st)))]
+      (is (pos? (:active-n (by "longus_capitis")))
+          (str "the coupled optimum gives the flexors force where the closed form "
+               "gave them none: " (by "longus_capitis"))))))
