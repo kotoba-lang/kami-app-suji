@@ -322,6 +322,25 @@
                            "適用範囲外")]))
                     posture/reference-workstations)}))]))
 
+(defn crossing-label
+  "Which muscles cross this level, as a readable list — or why none do.
+
+  The 筋ぶん column is a sum, and a sum cannot be checked. Until 2026-09-07 the
+  model decided crossing by a half-space test on height, so at the default posture
+  the whole C3/C4 row was carried by the two WRIST EXTENSORS — a force that
+  transmits to the forearm, credited to somebody's neck — and nothing on the page
+  could have shown that, because the page only ever printed the total. The rule is
+  a path test now, and this column is what makes the next such error visible
+  without reading the source.
+
+  An empty crossing set is stated rather than left blank: `C3/C4` genuinely has
+  none in some configurations, and a blank cell reads as a rendering failure."
+  [r]
+  (let [names (mapv first (:muscle-crossing r))]
+    (if (seq names)
+      (str/join "、" (map #(str/replace % "_" " ") names))
+      "（なし）")))
+
 (defn spine-view [state]
   (let [{:keys [tensions loads]} (solved state)
         body (body-of state)
@@ -339,15 +358,22 @@
        "大きな力が要り、その力は全部が関節を圧迫する。"
        "その担い手は姿勢で入れ替わるので、筋と靭帯を分けて示す。"]
       (dds/table
-       {:headers ["レベル" "部位" "体重ぶん" "筋ぶん" "靭帯ぶん" "合計" "断面積" "圧縮応力"]
+       {:headers ["レベル" "部位" "体重ぶん" "筋ぶん" "靭帯ぶん" "合計" "断面積" "圧縮応力" "跨いでいる筋"]
         :rows (mapv (fn [r] [(:name r) (name (:region r))
                              (str (math/fmt-fixed (:weight-n r) 0) " N")
                              (str (math/fmt-fixed (:muscle-n r) 0) " N")
                              (str (math/fmt-fixed (:ligament-n r) 0) " N")
                              (str (math/fmt-fixed (:force-n r) 0) " N")
                              (str (math/fmt-fixed (:disc-area-cm2 r) 1) " cm²")
-                             (str (math/fmt-fixed (:stress-mpa r) 2) " MPa")])
+                             (str (math/fmt-fixed (:stress-mpa r) 2) " MPa")
+                             (crossing-label r)])
                     rows)})
+      [:p {:class "suji-note"}
+       "「跨いでいる筋」は" [:strong "経路"] "で決まる —— そのレベルを取り除いたとき"
+       "身体が 2 つに分かれ、筋の 2 つの付着が別々の側に落ちるかどうか。"
+       "2026-09-07 まではこれが" [:strong "高さの判定"] "だったので、既定の姿勢では"
+       "C3/C4 の行を手関節伸筋 2 本だけが担っていた —— 前腕へ力を伝える筋が、"
+       "誰かの首に計上されていた。合計だけを見ていると、この種の誤りは見えない。"]
       [:p {:class "suji-note"}
        "深い体幹前屈では「筋ぶん」が縮み「靭帯ぶん」が支配的になる（屈曲弛緩）。"
        "そのとき脊椎を圧迫しているのは筋ではなく後方靭帯系であり、"

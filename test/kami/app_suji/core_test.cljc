@@ -8,7 +8,8 @@
   literally would have read a spine compressed by muscle where it is compressed
   by ligament — a different statement about the posture, and about what would
   change it."
-  (:require [clojure.string :as str]
+  (:require [clojure.set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [suji.methods.posture :as posture]
@@ -213,3 +214,83 @@
                (pr-str (mapv #(last (str/split (str/trim (flat-text %)) #"\s+")) items))))
       (is (re-find #"\d" (flat-text grf))
           (str "the ground-reaction figure carries no number: " (pr-str (flat-text grf)))))))
+
+(deftest the-spine-table-names-the-muscles-crossing-each-level
+  ;; The 筋ぶん column is a sum, and a sum cannot be checked. When `spine/crosses?`
+  ;; was a half-space test on height, the whole C3/C4 row was carried by the two
+  ;; wrist extensors — a force that transmits to the forearm, credited to a neck —
+  ;; and no reader of this page could have seen it, because the page printed only
+  ;; the total. This column is what makes the next error of that kind visible.
+  (let [view (core/spine-view (flexed 20))
+        hs (headers view)
+        rows (map #(mapv text-of (nodes :td %)) (nodes :tr view))
+        body (core/body-of (flexed 20))
+        model (spine/profile body (:posture (flexed 20))
+                             (:tensions (core/solved (flexed 20))))]
+    (is (some #{"跨いでいる筋"} hs) (str "no crossing column; headers were " hs))
+    (let [i (first (keep-indexed #(when (= "跨いでいる筋" %2) %1) hs))
+          cells (keep #(when (= (count hs) (count %)) (nth % i)) rows)]
+      (is (= (count model) (count cells))
+          (str "the model has " (count model) " levels and the table has "
+               (count cells) " crossing cells"))
+      ;; every muscle the model says crosses a level is named in that level's cell
+      (doseq [[r cell] (map vector model cells)]
+        (doseq [m (map first (:muscle-crossing r))]
+          (is (str/includes? cell (str/replace m "_" " "))
+              (str (:name r) ": " m " crosses it and is not in the cell: " cell))))
+      ;; ⚠ The "no muscle crosses this level" case is NOT asserted here. At 20° of
+      ;; trunk flexion every level has something crossing it, so a `when (empty?
+      ;; …)` guard would have run its body zero times and passed while measuring
+      ;; nothing — which is what the first version of this test did, and the break
+      ;; that rendered an empty set as a blank cell did not fail it. Measured over
+      ;; 360 level-samples across twelve postures, 13 are empty, and all of them
+      ;; are at trunk 0°. It gets its own test below, at a posture where the case
+      ;; actually occurs.
+      )))
+
+(deftest a-level-with-no-muscle-crossing-it-says-so-rather-than-rendering-blank
+  ;; A blank cell reads as a rendering failure. `L1/L2` genuinely has nothing
+  ;; crossing it upright — the muscles that span the lumbar column insert below
+  ;; it — and the page has to say that rather than leave a hole.
+  ;;
+  ;; The posture is chosen because the case OCCURS there, and the test asserts it
+  ;; occurs before asserting what it renders as: 13 of 360 level-samples across
+  ;; twelve postures are empty and every one is at trunk 0°.
+  (let [st (-> core/initial-state
+               (assoc-in [:posture :trunk-flexion-deg] 0.0)
+               (assoc-in [:posture :head-flexion-deg] 0.0))
+        model (spine/profile (core/body-of st) (:posture st) (:tensions (core/solved st)))
+        empty-levels (filter #(empty? (:muscle-crossing %)) model)
+        view (core/spine-view st)
+        hs (headers view)
+        i (first (keep-indexed #(when (= "跨いでいる筋" %2) %1) hs))
+        cells (->> (nodes :tr view)
+                   (map #(mapv text-of (nodes :td %)))
+                   (keep #(when (= (count hs) (count %)) (nth % i))))]
+    (is (seq empty-levels)
+        "no level is empty at this posture, so this test asserts nothing")
+    (doseq [[r cell] (map vector model cells)]
+      (when (empty? (:muscle-crossing r))
+        (is (str/includes? cell "なし")
+            (str (:name r) ": no muscle crosses it and the cell is " (pr-str cell)))))))
+
+(deftest the-crossing-column-is-not-the-same-for-every-level
+  ;; The control. Without it a cell that printed the whole muscle set, or one
+  ;; constant string, would satisfy every assertion above.
+  (let [view (core/spine-view (flexed 20))
+        hs (headers view)
+        i (first (keep-indexed #(when (= "跨いでいる筋" %2) %1) hs))
+        cells (->> (nodes :tr view)
+                   (map #(mapv text-of (nodes :td %)))
+                   (keep #(when (= (count hs) (count %)) (nth % i))))]
+    (is (< 1 (count (distinct cells)))
+        (str "every level lists the same muscles: " (pr-str (distinct cells))))
+    ;; a lumbar level and a cervical level must not agree — they share no muscle
+    (let [model (spine/profile (core/body-of (flexed 20)) (:posture (flexed 20))
+                               (:tensions (core/solved (flexed 20))))
+          named (fn [region]
+                  (set (mapcat #(map first (:muscle-crossing %))
+                               (filter #(= region (:region %)) model))))]
+      (is (empty? (clojure.set/intersection (named :lumbar) (named :cervical)))
+          (str "a muscle crosses both a lumbar and a cervical level: "
+               (pr-str (clojure.set/intersection (named :lumbar) (named :cervical))))))))
