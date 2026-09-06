@@ -25,6 +25,11 @@
         {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system.git"
          :git/sha "cc8f4849af5def7ea535fd6c0b8a623ccca645e9"}
 
+        ;; fragment routing, shared with kami-app-daw / kami-app-nle
+        io.github.kotoba-lang/route
+        {:git/url "https://github.com/kotoba-lang/route.git"
+         :git/sha "351b02325a5a5cfa6c12c3e99660c6eb2d3703be"}
+
         io.github.kotoba-lang/html
         {:git/url "https://github.com/kotoba-lang/html.git"
          :git/sha "44fe37a9120cb7753b974d921c7fc87448dace45"}
