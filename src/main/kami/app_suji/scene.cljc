@@ -38,10 +38,11 @@
    "thorax_abdomen" #{"erector_spinae" "quadratus_lumborum" "obliques"}
    "upper_arm"      #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
                       "upper_trapezius" "middle_trapezius" "levator_scapulae"}
-   "forearm"        #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
-                      "upper_trapezius" "middle_trapezius" "levator_scapulae"}
-   "hand"           #{"anterior_deltoid" "middle_deltoid" "latissimus_dorsi"
-                      "upper_trapezius" "middle_trapezius" "levator_scapulae"}
+   ;; the forearm and hand hang off the ELBOW, not off the shoulder — the shoulder
+   ;; carries them too, but the joint they are attached to is the one whose load
+   ;; their colour should report
+   "forearm"        #{"biceps_brachii" "brachialis" "triceps_brachii"}
+   "hand"           #{"biceps_brachii" "brachialis" "triceps_brachii"}
    "pelvis"         #{}})
 
 ;; --- the load ramp -----------------------------------------------------------
