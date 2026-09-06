@@ -40,30 +40,83 @@
     (is (empty? hits)
         (str "conflict markers are still in: " (pr-str (vec hits))))))
 
-(deftest the-browser-checker-is-at-least-readable
-  ;; It is never compiled by this suite, so nothing else would notice if it were
-  ;; syntactically broken until someone ran it — which is exactly what happened.
-  (let [f (io/file "scripts/verify-browser.cljs")]
-    (is (.exists f) "scripts/verify-browser.cljs is missing")
-    ;; The JVM reader has no reader function for ClojureScript's tagged literals
-    ;; (`#js`), so hand it a passthrough. Without this the test errors on the
-    ;; checker's own `#js {}` options maps and reports a reader limitation as if
-    ;; the file were broken — a check that fails for the wrong reason.
-    ;; The read is caught rather than allowed to propagate, so an unreadable file
-    ;; fails with THIS test's label. Letting it throw discriminates too, but the
-    ;; run then reports a reader exception rather than the thing being asserted —
-    ;; and a check that fails for a reason other than the one it names is the
-    ;; defect this repo keeps finding.
-    (let [result (try
-                   (binding [*default-data-reader-fn* (fn [_tag v] v)]
-                     (with-open [r (java.io.PushbackReader. (io/reader f))]
-                       {:forms (doall (take-while #(not= ::eof %)
-                                                  (repeatedly #(read {:eof ::eof :read-cond :allow} r))))}))
-                   (catch Exception e {:error (.getMessage e)}))]
-      (is (nil? (:error result))
-          (str "the browser checker does not read as Clojure data: " (:error result)))
-      (is (< 5 (count (:forms result)))
-          (str "expected the checker to read as many forms, got " (count (:forms result)))))))
+(defn- read-forms
+  "Read a script as Clojure data, returning `{:forms …}` or `{:error …}`.
+
+  The JVM reader has no reader function for ClojureScript's tagged literals
+  (`#js`), so hand it a passthrough. Without this the read errors on a checker's
+  own `#js {}` options map and reports a reader limitation as if the file were
+  broken — a check that fails for the wrong reason.
+
+  The read is CAUGHT rather than allowed to propagate, so an unreadable file fails
+  with the caller's label. Letting it throw discriminates too, but the run then
+  reports a reader exception rather than the thing being asserted."
+  [f]
+  (try
+    (binding [*default-data-reader-fn* (fn [_tag v] v)]
+      (with-open [r (java.io.PushbackReader. (io/reader f))]
+        {:forms (doall (take-while #(not= ::eof %)
+                                   (repeatedly #(read {:eof ::eof :read-cond :allow} r))))}))
+    (catch Exception e {:error (.getMessage e)})))
+
+(deftest every-script-is-at-least-readable
+  ;; None of these is compiled by this suite, so nothing else would notice one
+  ;; being syntactically broken until someone ran it — which has now happened
+  ;; twice.
+  ;;
+  ;; ⚠ IT CHECKED ONE FILE AND THERE ARE FOUR. On 2026-09-09 I put a measured JSON
+  ;; response into `publish-pages.cljs`'s docstring — an object with a quoted key —
+  ;; and the inner quotes CLOSED the docstring, so the first key became a symbol
+  ;; and the rest of the paragraph parsed as code. `clojure -M:test` stayed green,
+  ;; because that file is not on the classpath; `clojure -M:lint` stayed green,
+  ;; because it lints `src` and `test`. It failed at the moment I ran it to
+  ;; publish, with `enabled is not ISeqable`.
+  ;;
+  ;; That is the workspace's own recorded hazard — a quote inside a string that the
+  ;; reader accepts as the end of it — arriving in a `.cljs` docstring instead of
+  ;; an `.edn` document. The file list is DERIVED from the directory, so the next
+  ;; script added is covered without this test being edited, and a glob that
+  ;; reaches nothing fails rather than passing quietly.
+  (let [scripts (sort-by #(.getName ^java.io.File %)
+                         (filter #(.endsWith (.getName ^java.io.File %) ".cljs")
+                                 (seq (.listFiles (io/file "scripts")))))]
+    (is (<= 4 (count scripts))
+        (str "only " (count scripts) " scripts found in scripts/ — the listing is "
+             "not reaching them, and a check that reads nothing passes"))
+    (doseq [^java.io.File f scripts]
+      (let [result (read-forms f)]
+        (is (nil? (:error result))
+            (str "scripts/" (.getName f) " does not read as Clojure data: "
+                 (:error result)))
+        ;; A FLOOR AGAINST READING NOTHING, not a size claim. It was `> 5`, which
+        ;; was written for the 648-line browser checker and fails on
+        ;; `nbb_test.cljs` — five forms, all of them load-bearing. A floor that
+        ;; rejects a correct small file is a floor somebody loosens in a hurry.
+        ;; Three is what separates `the reader reached this file` from `the reader
+        ;; returned nothing`, which is the only thing this clause can tell.
+        (is (<= 3 (count (:forms result)))
+            (str "scripts/" (.getName f) " read as only "
+                 (count (:forms result)) " forms"))
+        ;; ⚠ READING IS NOT ENOUGH, and I found that out by breaking this test and
+        ;; watching it pass. The unbalanced-looking docstring above is BALANCED —
+        ;; four quotes — so `read` succeeds and hands back an `ns` form containing
+        ;; `enabled`, `":true,"`, `allowed_actions` as loose members before the
+        ;; `:require`. `nbb` then dies at load with `enabled is not ISeqable`.
+        ;;
+        ;; An `ns` form's members after the name and its docstring are all
+        ;; REFERENCE CLAUSES: lists starting with a keyword. A string that closed
+        ;; early scatters bare symbols and short strings in among them, which is
+        ;; exactly what this asserts against — the shape of the damage rather than
+        ;; the reader's opinion of it.
+        (when-let [nsf (first (filter #(and (seq? %) (= 'ns (first %))) (:forms result)))]
+          (let [after-name (drop 2 nsf)
+                body (if (string? (first after-name)) (rest after-name) after-name)
+                strays (remove #(and (sequential? %) (keyword? (first %))) body)]
+            (is (empty? strays)
+                (str "scripts/" (.getName f) " has an ns form with members that are "
+                     "not reference clauses — a docstring closed early: "
+                     (pr-str (mapv #(if (string? %) (subs % 0 (min 30 (count %))) %)
+                                   strays))))))))))
 
 (deftest the-readme-does-not-call-absent-what-the-model-has
   ;; The README's "いま無いもの（正直に）" section had five items on 2026-09-07 and

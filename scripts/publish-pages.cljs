@@ -12,7 +12,7 @@
   ⚠ THIS DOCSTRING SAID `Actions are now disabled repo-wide`, AND THAT IS FALSE
   FOR THIS REPO. Measured 2026-09-09:
   `gh api repos/kotoba-lang/kami-app-suji/actions/permissions` returns
-  `{"enabled":true,"allowed_actions":"all"}`. The sweep that disabled Actions
+  `{\"enabled\":true,\"allowed_actions\":\"all\"}`. The sweep that disabled Actions
   elsewhere did not reach here, and the workspace rule is explicit that the state
   is not knowable from the tree — a `.github/` directory says nothing either way,
   and a request that could not be read must not be recorded as `disabled`. So ASK
