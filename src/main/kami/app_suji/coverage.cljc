@@ -301,10 +301,10 @@
    :spine.lumbar-check/reference-force-n {:state :shown}
    :spine.lumbar-check/ratio             {:state :shown}
    :spine.lumbar-check/within-reference-spread? {:state :shown :token "基準の幅"}
-   :spine.lumbar-check/citation          {:state :computed-not-shown}
+   :spine.lumbar-check/citation          {:state :shown :token :from-value}
    :spine.lumbar-check/direction         {:state :computed-not-shown}
-   :spine.lumbar-check/level             {:state :computed-not-shown}
-   :spine.lumbar-check/model-disc-area-mm2 {:state :computed-not-shown}
+   :spine.lumbar-check/level             {:state :shown :token :from-value}
+   :spine.lumbar-check/model-disc-area-mm2 {:state :shown}
    :spine.lumbar-check/model-ligament-n  {:state :computed-not-shown}
    :spine.lumbar-check/model-muscle-n    {:state :computed-not-shown}
    :spine.lumbar-check/model-stress-mpa  {:state :computed-not-shown}
@@ -312,16 +312,16 @@
    :spine.lumbar-check/model-weight-n    {:state :computed-not-shown}
    :spine.lumbar-check/obtained          {:state :computed-not-shown}
    :spine.lumbar-check/posture           {:state :computed-not-shown}
-   :spine.lumbar-check/posture-basis     {:state :computed-not-shown}
-   :spine.lumbar-check/pressure-index    {:state :computed-not-shown}
-   :spine.lumbar-check/reference-caveat  {:state :computed-not-shown}
-   :spine.lumbar-check/reference-disc-area-mm2 {:state :computed-not-shown}
+   :spine.lumbar-check/posture-basis     {:state :shown :token :from-value}
+   :spine.lumbar-check/pressure-index    {:state :shown}
+   :spine.lumbar-check/reference-caveat  {:state :shown :token :from-value}
+   :spine.lumbar-check/reference-disc-area-mm2 {:state :shown}
    :spine.lumbar-check/reference-force-range-n {:state :computed-not-shown}
    :spine.lumbar-check/reference-id      {:state :computed-not-shown}
-   :spine.lumbar-check/reference-label   {:state :computed-not-shown}
-   :spine.lumbar-check/reference-pressure-mpa {:state :computed-not-shown}
-   :spine.lumbar-check/subject           {:state :computed-not-shown}
-   :spine.lumbar-check/url               {:state :computed-not-shown}
+   :spine.lumbar-check/reference-label   {:state :shown :token :from-value}
+   :spine.lumbar-check/reference-pressure-mpa {:state :shown}
+   :spine.lumbar-check/subject           {:state :shown}
+   :spine.lumbar-check/url               {:state :shown :token :from-value}
    :spine.lumbar-check/validated         {:state :computed-not-shown}})
 
 ;; --- reading the page ---------------------------------------------------------
@@ -351,12 +351,23 @@
              (str/includes? cls "suji-readout-item")))))
 
 (defn- text-of
-  "Every string under a node, joined — a cell's whole reading."
+  "Every string under a node, joined — a cell's whole reading, plus the
+  destination of a link.
+
+  AN HREF IS SHOWN, even though it is not text. A citation rendered as
+  `<a href=\"…pdf\">本文</a>` puts the paper's URL in front of the reader — it is
+  what they follow, and what they see on hover — and the model is where it came
+  from. Reading only the child strings reported `:spine.lumbar-check/url` as a
+  quantity the page does not carry, which would have been answered either by
+  reclassifying a link as absent or by printing a URL as body text to satisfy a
+  probe. Both are the probe deciding the design."
   [node]
   (cond
     (string? node) node
     (number? node) (str node)
-    (vector? node) (str/join " " (keep text-of (rest node)))
+    (vector? node) (let [href (:href (attrs-of node))
+                         inner (str/join " " (keep text-of (rest node)))]
+                     (if href (str inner " " href) inner))
     (seq? node) (str/join " " (keep text-of node))
     :else nil))
 

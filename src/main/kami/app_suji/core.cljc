@@ -682,13 +682,37 @@
                 (str (math/fmt-fixed (:level-force-n cerv) 0) " N")
                 (math/fmt-fixed (:ratio cerv) 3)
                 (str "検証済みは " (name (:validated cerv)))]
-               ["L4/L5 の圧縮（座位）" "Wilke 1999 in vivo 椎間板内圧"
+               ;; ⚠ THE SECOND CELL WAS THE LITERAL `Wilke 1999 in vivo 椎間板内圧`
+               ;; until 2026-09-08, on a page whose entire job is to say what is
+               ;; true. The model carries the citation, the URL, the posture the
+               ;; reference was measured in, and the caveat the paper states about
+               ;; itself; a hand-typed label cannot go stale loudly, and swapping
+               ;; `default-lumbar-reference-id` for another entry would have left
+               ;; this cell naming the wrong paper.
+               [(str (:level lumbar) " の圧縮（" (:reference-label lumbar) "）")
+                [:span (:citation lumbar) " "
+                 [:a {:href (:url lumbar)} "本文"]]
                 (str (math/fmt-fixed (:model-force-n lumbar) 0) " N vs "
                      (math/fmt-fixed (:reference-force-n lumbar) 0) " N")
                 (math/fmt-fixed (:ratio lumbar) 3)
                 (if (:within-reference-spread? lumbar)
                   "基準の幅の内"
                   [:strong "基準の幅の外（モデルが低い）"])]]})
+      [:p {:class "suji-note"}
+       "L4/L5 の基準について文献自身が言っていること —— "
+       [:strong (:reference-caveat lumbar)]
+       "。被験者は " (math/fmt-fixed (:mass-kg (:subject lumbar)) 0) " kg / "
+       (math/fmt-fixed (:stature-m (:subject lumbar)) 2) " m、"
+       "椎間板断面積はモデルが "
+       [:strong (str (math/fmt-fixed (:model-disc-area-mm2 lumbar) 0) " mm²")]
+       "、基準側が "
+       [:strong (str (math/fmt-fixed (:reference-disc-area-mm2 lumbar) 0) " mm²")]
+       "。圧力から力への換算は Nachemson の圧力指数 "
+       [:strong (math/fmt-fixed (:mean (:pressure-index lumbar)) 2)]
+       " による（"
+       (math/fmt-fixed (:reference-pressure-mpa lumbar) 2)
+       " MPa の実測値から）。姿勢の根拠は文献の記述そのもの —— "
+       (:posture-basis lumbar)]
 
       (dds/heading 3 "実装されているもの（数はモデルから数えている）")
       [:ul
