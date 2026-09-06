@@ -274,29 +274,28 @@
    ;; 8. the spine view exists and carries the level table with its caveat
    (fn []
      (p/let [_ (.click page "a[href='#/spine']")
-<<<<<<< HEAD
-             ;; Wait for something ONLY the spine view has. `waitForSelector
-             ;; "table"` returns instantly because the simulate view has tables
-             ;; too, so the assertions below then read the view we just left —
-             ;; which is exactly the race this repo's own single-page rule warns
-             ;; about. It went unnoticed until a check was inserted earlier in the
-             ;; run and the race started losing.
+             ;; Two sessions diagnosed this race independently and fixed it two
+             ;; different ways; this is both, because each catches something the
+             ;; other does not.
+             ;;
+             ;; WHICH VIEW. `waitForSelector "table"` returns instantly after the
+             ;; click, because the simulate view has tables too, so the assertions
+             ;; read the view we just left. Waiting on `tbody tr` does not fix that
+             ;; either: the simulate view has rows as well. Wait for a heading only
+             ;; the spine view has.
+             ;;
+             ;; WHETHER IT IS LAID OUT. `innerText` needs layout, and the element
+             ;; can exist a tick before its text is measurable. Hence the settle.
+             ;;
+             ;; It had been passing by luck. Two changes landing the same day — a
+             ;; check inserted earlier in the run, and the bone checks adding
+             ;; ~800ms and two extra renders ahead of it — both made it start
+             ;; losing, in one case failing three assertions at once while the
+             ;; structural check on the same table kept passing.
              _ (.waitForFunction page
-                "Array.from(document.querySelectorAll('th')).some(e => e.innerText.trim() === 'レベル')")
-=======
-             _ (.waitForSelector page "table")
-             ;; innerText needs LAYOUT, and `table` exists before the rows do.
-             ;; Reading it in the same tick as the commit returns the shell
-             ;; without the view — the same hazard the comparison check below
-             ;; already documents, which this block was missing. It passed by
-             ;; luck until the bone checks above added ~800ms and two extra
-             ;; renders ahead of it, and then failed three assertions at once
-             ;; while the structural check on the same table kept passing.
-             _ (.waitForFunction page
-                "() => document.querySelectorAll('tbody tr').length > 0"
+                "() => Array.from(document.querySelectorAll('th')).some(e => e.innerText.trim() === 'レベル')"
                 #js {} #js {:timeout 8000})
              _ (.waitForTimeout page 200)
->>>>>>> origin/main
              body (.evaluate page "document.body.innerText")]
        (check! "the spine view lists intervertebral levels"
                (and (str/includes? (or body "") "L5/S1")
