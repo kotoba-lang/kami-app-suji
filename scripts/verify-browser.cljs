@@ -30,7 +30,7 @@
   (:require ["node:fs" :as fs]
             ["node:process" :as process]
             ["playwright$default" :as pw]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             ;; the SAME sources the browser is running, so the bone-mesh check
             ;; below can be a disagreement between two runtimes over one .cljc
             ;; rather than the page grading its own homework
