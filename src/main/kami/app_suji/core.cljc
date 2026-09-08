@@ -11,7 +11,7 @@
   condition or a recommendation to treat, and adding one would be a charter
   violation in `suji` before it was a UI change here. SELF-REFERENCED (G3): the
   comparison is one body across setups, never one person against another."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [jp-go-dds.core :as dds]
             [kami.app-suji.coverage :as coverage]
             [kami.app-suji.route :as route]

@@ -18,7 +18,7 @@
        and finding the prose beside the thing it was looking for. So a page with a
        view removed is probed too, and the quantities that lived in that view have
        to come back absent while the ones that did not have to stay found."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [kami.app-suji.coverage :as coverage]))

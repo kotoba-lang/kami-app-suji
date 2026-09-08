@@ -28,7 +28,7 @@
   in sixty cannot carry a column that is not there.
 
   NON-DIAGNOSTIC (G1): this namespace counts keys. It holds no clinical claim."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [suji.methods.girdle :as girdle]
             [suji.methods.load :as load]
             [suji.methods.math :as math]

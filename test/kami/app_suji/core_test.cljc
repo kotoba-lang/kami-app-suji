@@ -9,7 +9,7 @@
   by ligament — a different statement about the posture, and about what would
   change it."
   (:require [clojure.set]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [suji.methods.attachment :as attachment]
