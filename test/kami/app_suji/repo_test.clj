@@ -16,7 +16,7 @@
             [suji.methods.attachment :as attachment]
             [suji.methods.recruit]
             [clojure.java.shell :as shell]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- tracked-files []

@@ -1,7 +1,7 @@
 (ns kami.app-suji.route-test
   "Views are data and the nav is generated from them; these are the invariants
   that keeps honest."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [kami.app-suji.route :as route]))
