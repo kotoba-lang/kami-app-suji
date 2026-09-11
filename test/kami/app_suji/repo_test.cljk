@@ -6,7 +6,7 @@
 
   WHY THIS EXISTS. On 2026-09-07 a merge in this repo was committed with conflict
   markers still in `scripts/verify-browser.cljk`, and the suite stayed green —
-  `clojure -M:test` compiles `src` and `test`, and the browser checker is an nbb
+  `kbb -M:test` compiles `src` and `test`, and the browser checker is an nbb
   script on neither path. So the one file whose job is to catch things nothing
   else catches was itself outside every check. The markers were found by reading
   the file, which is not a method."
@@ -67,8 +67,8 @@
   ;; ⚠ IT CHECKED ONE FILE AND THERE ARE FOUR. On 2026-09-09 I put a measured JSON
   ;; response into `publish-pages.cljs`'s docstring — an object with a quoted key —
   ;; and the inner quotes CLOSED the docstring, so the first key became a symbol
-  ;; and the rest of the paragraph parsed as code. `clojure -M:test` stayed green,
-  ;; because that file is not on the classpath; `clojure -M:lint` stayed green,
+  ;; and the rest of the paragraph parsed as code. `kbb -M:test` stayed green,
+  ;; because that file is not on the classpath; `kbb -M:lint` stayed green,
   ;; because it lints `src` and `test`. It failed at the moment I ran it to
   ;; publish, with `enabled is not ISeqable`.
   ;;
