@@ -46,7 +46,7 @@ repo-wide の 3D 規約どおり、`kami-app-*` は UI と orchestration を持�
 ```bash
 npm install
 npm run page                # public/index.html と 404.html を生成
-npm run release             # shadow-cljs release → public/js/main.js
+npm run release             # amu compile --target wasm32-browser → public/js/main.js
 (cd public && python3 -m http.server 8741)
 PW_CHANNEL=chrome npm run verify:browser
 ```
@@ -58,10 +58,10 @@ PW_CHANNEL=chrome npm run verify:browser
 
 | 何を | どう | 結果 |
 |---|---|---|
-| 純 `.cljc` の view / scene / coverage / route | `clojure -M:test` | 71 tests / 1,611 assertions |
+| 純 `.cljc` の view / scene / coverage / route | `kbb -M:test` | 71 tests / 1,611 assertions |
 | 同じものを **ClojureScript で** | `npm run check:cljs` | 67 tests / 1,595 assertions |
 | 実ブラウザ | `scripts/verify-browser.cljk` | 58 checks（ローカルと公開 URL） |
-| lint | `clojure -M:lint` | 0 errors / 0 warnings |
+| lint | `kbb -M:lint` | 0 errors / 0 warnings |
 
 ⚠ **2 行目は 2026-09-08 まで存在しなかった。** この app の view も scene も
 coverage も `.cljc` でありながら、検査していたのは JVM だけだった ——
