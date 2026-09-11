@@ -12,7 +12,7 @@
   that matters for a page nobody could reach was the one host nothing was checked
   on. Run it with:
 
-      nbb --classpath \"$(clojure -Spath):test\" scripts/nbb_test.cljs
+      nbb --classpath \"$(clojure -Spath):test\" scripts/nbb_test.cljk
 
   SCOPE — `repo-test` is deliberately absent. It shells out to `git ls-files` and
   slurps tracked files off disk; it checks properties of the checkout, not of
