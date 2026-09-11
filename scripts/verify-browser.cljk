@@ -26,7 +26,7 @@
      the value has to still be there.
 
   Run (after a release build and gen-page, with public/ served):
-    SUJI_URL=… npx nbb --classpath \"$(clojure -Spath)\" scripts/verify-browser.cljs"
+    SUJI_URL=… npx nbb --classpath \"$(clojure -Spath)\" scripts/verify-browser.cljk"
   (:require ["node:fs" :as fs]
             ["node:process" :as process]
             ["playwright$default" :as pw]

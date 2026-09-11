@@ -60,7 +60,7 @@ PW_CHANNEL=chrome npm run verify:browser
 |---|---|---|
 | 純 `.cljc` の view / scene / coverage / route | `clojure -M:test` | 71 tests / 1,611 assertions |
 | 同じものを **ClojureScript で** | `npm run check:cljs` | 67 tests / 1,595 assertions |
-| 実ブラウザ | `scripts/verify-browser.cljs` | 58 checks（ローカルと公開 URL） |
+| 実ブラウザ | `scripts/verify-browser.cljk` | 58 checks（ローカルと公開 URL） |
 | lint | `clojure -M:lint` | 0 errors / 0 warnings |
 
 ⚠ **2 行目は 2026-09-08 まで存在しなかった。** この app の view も scene も

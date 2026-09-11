@@ -162,7 +162,7 @@
 (defn- report-geometry!
   "Publish what the GPU was actually given for the bones, on `window`.
 
-  This exists for `scripts/verify-browser.cljs`, and it is deliberately read off
+  This exists for `scripts/verify-browser.cljk`, and it is deliberately read off
   the buffer handles rather than off the scene: the check has to be able to fail
   when the upload path regresses, not merely when the scene map changes. The
   counts come back from `upload-mesh!`; the verifier recomputes the same numbers

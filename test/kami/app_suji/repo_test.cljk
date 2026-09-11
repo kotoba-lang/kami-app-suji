@@ -5,7 +5,7 @@
   the checkout rather than of anything portable.
 
   WHY THIS EXISTS. On 2026-09-07 a merge in this repo was committed with conflict
-  markers still in `scripts/verify-browser.cljs`, and the suite stayed green —
+  markers still in `scripts/verify-browser.cljk`, and the suite stayed green —
   `clojure -M:test` compiles `src` and `test`, and the browser checker is an nbb
   script on neither path. So the one file whose job is to catch things nothing
   else catches was itself outside every check. The markers were found by reading
