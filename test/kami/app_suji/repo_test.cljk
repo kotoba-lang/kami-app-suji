@@ -78,7 +78,7 @@
   ;; script added is covered without this test being edited, and a glob that
   ;; reaches nothing fails rather than passing quietly.
   (let [scripts (sort-by #(.getName ^java.io.File %)
-                         (filter #(.endsWith (.getName ^java.io.File %) ".cljs")
+                         (filter #(let [n (.getName ^java.io.File %)] (or (.endsWith n ".cljk") (.endsWith n ".cljs")))
                                  (seq (.listFiles (io/file "scripts")))))]
     (is (<= 4 (count scripts))
         (str "only " (count scripts) " scripts found in scripts/ — the listing is "
