@@ -10,7 +10,7 @@
   change it."
   (:require [clojure.set]
             [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [suji.methods.attachment :as attachment]
             [suji.methods.math :as math]

@@ -6,7 +6,7 @@
   asks for the right one, keeps asking when suji grows a segment nobody here has
   heard of, and that drawing a unit template through the transform is the same
   mesh as generating it at the simulator's size."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kami.app-suji.scene :as scene]
             [kami.webgpu.geometry :as geom]
             [suji.methods.posture :as posture]
