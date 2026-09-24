@@ -17,7 +17,7 @@
             [suji.methods.recruit]
             [clojure.java.shell :as shell]
             [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is]]))
+            [kotoba.test :refer [deftest is]]))
 
 (defn- tracked-files []
   (->> (:out (shell/sh "git" "ls-files"))

@@ -6,7 +6,7 @@
   the physics says is loaded has to be a colour the legend calls loaded, and the
   camera has to frame what is actually on screen."
   (:require [clojure.set]
-            [clojure.test :refer [deftest is]]
+            [kotoba.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [suji.methods.attachment :as attachment]
             [kami.app-suji.scene :as scene]
