@@ -15,7 +15,7 @@
             [kami.app-suji.core-test]
             [suji.methods.attachment :as attachment]
             [suji.methods.recruit]
-            [clojure.java.shell :as shell]
+            [kotoba.process :as shell]
             [kotoba.lang.text :as str]
             [kotoba.test :refer [deftest is]]))
 

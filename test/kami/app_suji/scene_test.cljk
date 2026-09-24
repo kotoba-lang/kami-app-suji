@@ -5,7 +5,7 @@
   does that — but that the picture and the numbers are the SAME claim: a segment
   the physics says is loaded has to be a colour the legend calls loaded, and the
   camera has to frame what is actually on screen."
-  (:require [clojure.set]
+  (:require [kotoba.lang.coll]
             [kotoba.test :refer [deftest is]]
             [kami.app-suji.core :as core]
             [suji.methods.attachment :as attachment]
@@ -333,12 +333,12 @@
   (let [placed (set (map :base (:segments (pose/solve-pose body (:posture core/initial-state)))))
         keyed (set (keys scene/joint-muscles))]
     (is (seq placed) "no segments placed, so this asserts nothing")
-    (is (empty? (clojure.set/difference placed keyed))
+    (is (empty? (kotoba.lang.coll/difference placed keyed))
         (str "segments the model places with no entry here: "
-             (pr-str (sort (clojure.set/difference placed keyed)))))
-    (is (empty? (clojure.set/difference keyed placed))
+             (pr-str (sort (kotoba.lang.coll/difference placed keyed)))))
+    (is (empty? (kotoba.lang.coll/difference keyed placed))
         (str "entries here for segments the model no longer places: "
-             (pr-str (sort (clojure.set/difference keyed placed)))))))
+             (pr-str (sort (kotoba.lang.coll/difference keyed placed)))))))
 
 (deftest every-muscle-group-the-model-solves-is-assigned-to-a-segment
   ;; The other direction. A muscle group that reaches no segment contributes to no
@@ -349,12 +349,12 @@
         solved (set (map :group tensions))
         assigned (set (mapcat identity (vals scene/joint-muscles)))]
     (is (seq solved) "nothing solved, so this asserts nothing")
-    (is (empty? (clojure.set/difference solved assigned))
+    (is (empty? (kotoba.lang.coll/difference solved assigned))
         (str "muscle groups the model solves that no segment is coloured by: "
-             (pr-str (sort (clojure.set/difference solved assigned)))))
-    (is (empty? (clojure.set/difference assigned solved))
+             (pr-str (sort (kotoba.lang.coll/difference solved assigned)))))
+    (is (empty? (kotoba.lang.coll/difference assigned solved))
         (str "groups named here that the model does not solve: "
-             (pr-str (sort (clojure.set/difference assigned solved)))))))
+             (pr-str (sort (kotoba.lang.coll/difference assigned solved)))))))
 
 (deftest disc-geometry-still-computes
   ;; `disc-draws` is deliberately not in the frame — a disc is ~24 mm at L5/S1
