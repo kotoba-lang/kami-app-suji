@@ -8,7 +8,7 @@
   literally would have read a spine compressed by muscle where it is compressed
   by ligament — a different statement about the posture, and about what would
   change it."
-  (:require [clojure.set]
+  (:require [kotoba.lang.coll]
             [kotoba.lang.text :as str]
             [kotoba.test :refer [deftest is]]
             [kami.app-suji.core :as core]
@@ -295,9 +295,9 @@
           named (fn [region]
                   (set (mapcat #(map first (:muscle-crossing %))
                                (filter #(= region (:region %)) model))))]
-      (is (empty? (clojure.set/intersection (named :lumbar) (named :cervical)))
+      (is (empty? (kotoba.lang.coll/intersection (named :lumbar) (named :cervical)))
           (str "a muscle crosses both a lumbar and a cervical level: "
-               (pr-str (clojure.set/intersection (named :lumbar) (named :cervical))))))))
+               (pr-str (kotoba.lang.coll/intersection (named :lumbar) (named :cervical))))))))
 
 ;; --- the page that says what is true ----------------------------------------
 
